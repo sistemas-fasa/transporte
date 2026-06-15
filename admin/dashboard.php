@@ -21,7 +21,7 @@ $litrosMes = $db->prepare("SELECT COALESCE(SUM(litros),0) as total FROM combusti
 $litrosMes->execute([$mes, $anio]);
 $litrosData = $litrosMes->fetch();
 
-$gastoCombustible = $db->prepare("SELECT COALESCE(SUM(importe_total),0) as total FROM combustible WHERE MONTH(fecha)=? AND YEAR(fecha)=?");
+$gastoCombustible = $db->prepare("SELECT COALESCE(SUM(litros * precio_litro),0) as total FROM combustible WHERE MONTH(fecha)=? AND YEAR(fecha)=?");
 $gastoCombustible->execute([$mes, $anio]);
 $gastoCombData = $gastoCombustible->fetch();
 
@@ -35,7 +35,7 @@ $alertas = $db->query("SELECT a.*, c.patente FROM alertas a LEFT JOIN camiones c
 // Gasto por camion (mes actual) con KM
 $gastoCamion = $db->prepare("
     SELECT c.patente, c.marca,
-        COALESCE((SELECT SUM(co2.importe_total) FROM combustible co2 WHERE co2.id_camion = c.id_camion AND MONTH(co2.fecha)=? AND YEAR(co2.fecha)=?),0) as total,
+        COALESCE((SELECT SUM(co2.litros * co2.precio_litro) FROM combustible co2 WHERE co2.id_camion = c.id_camion AND MONTH(co2.fecha)=? AND YEAR(co2.fecha)=?),0) as total,
         COALESCE((SELECT SUM(hr.km_recorridos) FROM km_recorrido hr WHERE hr.id_camion = c.id_camion AND MONTH(hr.fecha)=? AND YEAR(hr.fecha)=?),0) as km
     FROM camiones c
     ORDER BY total DESC LIMIT 5
@@ -46,7 +46,7 @@ $maxGasto = $gastoCamiones ? max(array_column($gastoCamiones, 'total')) : 1;
 
 // Combustible por mes (ultimos 6 meses)
 $combustibleMeses = $db->query("
-    SELECT DATE_FORMAT(fecha, '%Y-%m') as mes, SUM(litros) as litros, SUM(importe_total) as total
+    SELECT DATE_FORMAT(fecha, '%Y-%m') as mes, SUM(litros) as litros, SUM(litros * precio_litro) as total
     FROM combustible
     WHERE fecha >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
     GROUP BY mes ORDER BY mes ASC

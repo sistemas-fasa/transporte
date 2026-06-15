@@ -69,7 +69,7 @@ $kmMes->execute($kmParams);
 $kmData = $kmMes->fetch();
 
 // Combustible
-$combSql = "SELECT COALESCE(SUM(litros),0) as litros, COALESCE(SUM(importe_total),0) as total FROM combustible WHERE MONTH(fecha) = ? AND YEAR(fecha) = ?";
+$combSql = "SELECT COALESCE(SUM(litros),0) as litros, COALESCE(SUM(litros * precio_litro),0) as total FROM combustible WHERE MONTH(fecha) = ? AND YEAR(fecha) = ?";
 $combParams = [$mes, $anio];
 if ($userId) { $combSql .= " AND id_usuario_registra = ?"; $combParams[] = $userId; }
 elseif ($idChofer) { $combSql .= " AND id_chofer = ?"; $combParams[] = $idChofer; }

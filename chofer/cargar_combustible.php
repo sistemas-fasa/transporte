@@ -180,13 +180,6 @@ if ($idChofer) {
 </div>
 </div>
 
-<div class="md:col-span-2 flex flex-col gap-2 p-4 bg-surface-container-high rounded-lg">
-<div class="flex justify-between items-center">
-<label class="font-label-caps text-label-caps text-on-surface font-bold uppercase">Importe Total Calculado</label>
-<span class="material-symbols-outlined text-primary">calculate</span>
-</div>
-<div class="font-headline-md text-headline-md text-primary font-bold font-data-mono" id="total">$ 0.00</div>
-</div>
 </div>
 </div>
 
@@ -239,12 +232,11 @@ if ($idChofer) {
                     <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant">ESTACION</th>
                     <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">LITROS</th>
                     <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">PRECIO/L</th>
-                    <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">TOTAL</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant">
                 <?php if (empty($combustibles)): ?>
-                    <tr><td colspan="6" class="px-4 py-8 text-center text-on-surface-variant">No hay cargas registradas</td></tr>
+                    <tr><td colspan="5" class="px-4 py-8 text-center text-on-surface-variant">No hay cargas registradas</td></tr>
                 <?php else: ?>
                     <?php foreach ($combustibles as $c): ?>
                         <tr class="hover:bg-surface-container transition-colors">
@@ -253,7 +245,6 @@ if ($idChofer) {
                             <td class="px-4 py-3"><?= htmlspecialchars($c['estacion_servicio'] ?? '-') ?></td>
                             <td class="px-4 py-3 text-right font-data-mono"><?= number_format($c['litros'], 2) ?> L</td>
                             <td class="px-4 py-3 text-right font-data-mono">$<?= number_format($c['precio_litro'], 3) ?></td>
-                            <td class="px-4 py-3 text-right font-data-mono font-bold">$<?= number_format($c['importe_total'], 2) ?></td>
                         </tr>
                     <?php endforeach; ?>
                 <?php endif; ?>
@@ -266,20 +257,6 @@ if ($idChofer) {
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const litrosInput = document.getElementById('litros');
-const precioInput = document.getElementById('precio');
-const totalDisplay = document.getElementById('total');
-function calculateTotal() {
-const litros = parseFloat(litrosInput.value) || 0;
-const precio = parseFloat(precioInput.value) || 0;
-const total = litros * precio;
-totalDisplay.innerText = '$ ' + total.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-totalDisplay.classList.add('scale-105');
-setTimeout(() => totalDisplay.classList.remove('scale-105'), 100);
-}
-litrosInput.addEventListener('input', calculateTotal);
-precioInput.addEventListener('input', calculateTotal);
-
 // Truck selection
 const camionSelect = document.getElementById('camionSelect');
 const camionInfo = document.getElementById('camionInfo');
@@ -351,7 +328,6 @@ const estacionSelect = document.getElementById('estacion');
 ['YPF','SHELL','AXION','CISTERNA'].forEach(v => {
 if (text.toUpperCase().includes(v)) { estacionSelect.value = v; }
 });
-calculateTotal();
 alert('Datos extraidos del ticket. Revise y corrija si es necesario.');
 } catch (err) {
 alert('Error al escanear: ' + err.message);

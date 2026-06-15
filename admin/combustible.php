@@ -10,7 +10,7 @@ $mes = date('m');
 $anio = date('Y');
 
 // Stats
-$statsMes = $db->prepare("SELECT COUNT(*) as cargas, COALESCE(SUM(litros),0) as litros, COALESCE(SUM(importe_total),0) as total, COALESCE(AVG(importe_total/litros),0) as precio_prom FROM combustible WHERE MONTH(fecha)=? AND YEAR(fecha)=?");
+$statsMes = $db->prepare("SELECT COUNT(*) as cargas, COALESCE(SUM(litros),0) as litros, COALESCE(SUM(litros * precio_litro),0) as total, COALESCE(AVG(precio_litro),0) as precio_prom FROM combustible WHERE MONTH(fecha)=? AND YEAR(fecha)=?");
 $statsMes->execute([$mes, $anio]);
 $stats = $statsMes->fetch();
 
@@ -156,7 +156,7 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 <td class="px-4 py-3"><?= htmlspecialchars($r['estacion_servicio'] ?? '-') ?></td>
 <td class="px-4 py-3 text-right font-data-mono"><?= number_format($r['litros'], 2) ?></td>
 <td class="px-4 py-3 text-right font-data-mono">$<?= number_format($r['precio_litro'], 3) ?></td>
-<td class="px-4 py-3 text-right font-data-mono font-bold">$<?= number_format($r['importe_total'], 2) ?></td>
+<td class="px-4 py-3 text-right font-data-mono font-bold">$<?= number_format($r['litros'] * $r['precio_litro'], 2) ?></td>
 <td class="px-4 py-3 text-center">
 <?php if ($r['foto_ticket']): ?>
 <a href="<?= BASE_URL ?>/assets/uploads/tickets/<?= $r['foto_ticket'] ?>" target="_blank" class="text-primary underline text-xs">Ver</a>

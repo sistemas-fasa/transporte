@@ -89,7 +89,7 @@ try {
             $anio = date('Y');
             $km = $db->prepare("SELECT COALESCE(SUM(km_recorridos),0) as total FROM {$tripTable} WHERE id_chofer = ? AND MONTH(fecha) = ? AND YEAR(fecha) = ?");
             $km->execute([$idChofer, $mes, $anio]);
-            $comb = $db->prepare("SELECT COALESCE(SUM(litros),0) as litros, COALESCE(SUM(importe_total),0) as total FROM combustible WHERE id_chofer = ? AND MONTH(fecha) = ? AND YEAR(fecha) = ?");
+            $comb = $db->prepare("SELECT COALESCE(SUM(litros),0) as litros, COALESCE(SUM(litros * precio_litro),0) as total FROM combustible WHERE id_chofer = ? AND MONTH(fecha) = ? AND YEAR(fecha) = ?");
             $comb->execute([$idChofer, $mes, $anio]);
             echo json_encode(['km' => $km->fetch(), 'combustible' => $comb->fetch()]);
             break;

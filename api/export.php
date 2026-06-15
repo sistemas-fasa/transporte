@@ -57,7 +57,7 @@ function generarHTML($data, $headers, $title) {
 
 switch ($tipo) {
     case 'combustible':
-        $sql = "SELECT DATE(co.fecha) as fecha, CONCAT(ch.apellido,', ',ch.nombre) as chofer, c.patente as camion, co.estacion_servicio, co.litros, co.precio_litro, co.importe_total FROM combustible co JOIN choferes ch ON co.id_chofer = ch.id_chofer JOIN camiones c ON co.id_camion = c.id_camion WHERE DATE(co.fecha) BETWEEN ? AND ?";
+        $sql = "SELECT DATE(co.fecha) as fecha, CONCAT(ch.apellido,', ',ch.nombre) as chofer, c.patente as camion, co.estacion_servicio, co.litros, co.precio_litro, (co.litros * co.precio_litro) as importe_total FROM combustible co JOIN choferes ch ON co.id_chofer = ch.id_chofer JOIN camiones c ON co.id_camion = c.id_camion WHERE DATE(co.fecha) BETWEEN ? AND ?";
         $params = [$desde, $hasta];
         if ($id_chofer) { $sql .= " AND co.id_chofer = ?"; $params[] = $id_chofer; }
         if ($id_camion) { $sql .= " AND co.id_camion = ?"; $params[] = $id_camion; }

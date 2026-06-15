@@ -26,7 +26,7 @@ if (!$idChofer && $userId) {
 
 // Combined activity
 if ($idChofer) {
-    $sql = "SELECT 'combustible' as tipo, co.fecha, CONCAT(c.patente, ' - ', co.litros, 'L - $', co.importe_total) as detalle, co.created_at FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion WHERE co.id_chofer = ?
+    $sql = "SELECT 'combustible' as tipo, co.fecha, CONCAT(c.patente, ' - ', co.litros, 'L - $', ROUND(co.litros * co.precio_litro, 2)) as detalle, co.created_at FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion WHERE co.id_chofer = ?
             UNION ALL
             SELECT 'mantenimiento' as tipo, m.fecha, CONCAT(c.patente, ' - ', m.tipo, ' - $', m.costo) as detalle, m.created_at FROM mantenimientos m JOIN camiones c ON m.id_camion = c.id_camion JOIN asignaciones a ON a.id_camion = c.id_camion WHERE a.id_chofer = ? AND a.activa = 1
             UNION ALL
@@ -35,7 +35,7 @@ if ($idChofer) {
     $stmt = $db->prepare($sql);
     $stmt->execute([$idChofer, $idChofer, $idChofer]);
 } elseif ($hasUsuarioId) {
-    $sql = "SELECT 'combustible' as tipo, co.fecha, CONCAT(c.patente, ' - ', co.litros, 'L - $', co.importe_total) as detalle, co.created_at FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion WHERE co.id_usuario_registra = ?
+    $sql = "SELECT 'combustible' as tipo, co.fecha, CONCAT(c.patente, ' - ', co.litros, 'L - $', ROUND(co.litros * co.precio_litro, 2)) as detalle, co.created_at FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion WHERE co.id_usuario_registra = ?
             UNION ALL
             SELECT 'mantenimiento' as tipo, m.fecha, CONCAT(c.patente, ' - ', m.tipo, ' - $', m.costo) as detalle, m.created_at FROM mantenimientos m JOIN camiones c ON m.id_camion = c.id_camion JOIN vehiculos_usuarios vu ON vu.vehiculo_id = c.id_camion WHERE vu.usuario_id = ?
             UNION ALL

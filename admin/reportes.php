@@ -95,7 +95,7 @@ echo $titulos[$tipo] ?? 'Reporte';
 <?php
 switch ($tipo) {
     case 'combustible':
-        $sql = "SELECT co.fecha, ch.apellido, ch.nombre, c.patente, co.estacion_servicio, co.litros, co.precio_litro, co.importe_total, co.kilometraje_al_cargar FROM combustible co JOIN choferes ch ON co.id_chofer = ch.id_chofer JOIN camiones c ON co.id_camion = c.id_camion WHERE DATE(co.fecha) BETWEEN ? AND ?";
+        $sql = "SELECT co.fecha, ch.apellido, ch.nombre, c.patente, co.estacion_servicio, co.litros, co.precio_litro, (co.litros * co.precio_litro) as importe_total, co.kilometraje_al_cargar FROM combustible co JOIN choferes ch ON co.id_chofer = ch.id_chofer JOIN camiones c ON co.id_camion = c.id_camion WHERE DATE(co.fecha) BETWEEN ? AND ?";
         $params = [$desde, $hasta];
         if ($id_chofer) { $sql .= " AND co.id_chofer = ?"; $params[] = $id_chofer; }
         if ($id_camion) { $sql .= " AND co.id_camion = ?"; $params[] = $id_camion; }
@@ -136,7 +136,7 @@ switch ($tipo) {
         break;
 
     case 'chofer':
-        $sql = "SELECT ch.id_chofer, ch.nombre, ch.apellido, ch.dni, COUNT(DISTINCT hr.id_hoja) as viajes, COALESCE(SUM(hr.km_recorridos),0) as km_total, COALESCE(SUM(co2.litros),0) as litros_total, COALESCE(SUM(co2.importe_total),0) as combustible_total FROM choferes ch LEFT JOIN km_recorrido hr ON ch.id_chofer = hr.id_chofer AND hr.fecha BETWEEN ? AND ? LEFT JOIN combustible co2 ON ch.id_chofer = co2.id_chofer AND DATE(co2.fecha) BETWEEN ? AND ?";
+        $sql = "SELECT ch.id_chofer, ch.nombre, ch.apellido, ch.dni, COUNT(DISTINCT hr.id_hoja) as viajes, COALESCE(SUM(hr.km_recorridos),0) as km_total, COALESCE(SUM(co2.litros),0) as litros_total, COALESCE(SUM(co2.litros * co2.precio_litro),0) as combustible_total FROM choferes ch LEFT JOIN km_recorrido hr ON ch.id_chofer = hr.id_chofer AND hr.fecha BETWEEN ? AND ? LEFT JOIN combustible co2 ON ch.id_chofer = co2.id_chofer AND DATE(co2.fecha) BETWEEN ? AND ?";
         $params = [$desde, $hasta, $desde, $hasta];
         $where = [];
         if ($id_chofer) { $where[] = "ch.id_chofer = ?"; $params[] = $id_chofer; }
@@ -155,7 +155,7 @@ switch ($tipo) {
         break;
 
     case 'camion':
-        $sql = "SELECT c.id_camion, c.patente, c.marca, c.modelo, c.kilometraje_actual, COUNT(DISTINCT hr.id_hoja) as viajes, COALESCE(SUM(hr.km_recorridos),0) as km_total, COALESCE(SUM(co2.litros),0) as litros_total, COALESCE(SUM(co2.importe_total),0) as combustible_total, COALESCE(SUM(m.costo),0) as mantenimiento_total FROM camiones c LEFT JOIN km_recorrido hr ON c.id_camion = hr.id_camion AND hr.fecha BETWEEN ? AND ? LEFT JOIN combustible co2 ON c.id_camion = co2.id_camion AND DATE(co2.fecha) BETWEEN ? AND ? LEFT JOIN mantenimientos m ON c.id_camion = m.id_camion AND m.fecha BETWEEN ? AND ?";
+        $sql = "SELECT c.id_camion, c.patente, c.marca, c.modelo, c.kilometraje_actual, COUNT(DISTINCT hr.id_hoja) as viajes, COALESCE(SUM(hr.km_recorridos),0) as km_total, COALESCE(SUM(co2.litros),0) as litros_total, COALESCE(SUM(co2.litros * co2.precio_litro),0) as combustible_total, COALESCE(SUM(m.costo),0) as mantenimiento_total FROM camiones c LEFT JOIN km_recorrido hr ON c.id_camion = hr.id_camion AND hr.fecha BETWEEN ? AND ? LEFT JOIN combustible co2 ON c.id_camion = co2.id_camion AND DATE(co2.fecha) BETWEEN ? AND ? LEFT JOIN mantenimientos m ON c.id_camion = m.id_camion AND m.fecha BETWEEN ? AND ?";
         $params = [$desde, $hasta, $desde, $hasta, $desde, $hasta];
         $where = [];
         if ($id_camion) { $where[] = "c.id_camion = ?"; $params[] = $id_camion; }
@@ -175,7 +175,7 @@ switch ($tipo) {
         break;
 
     case 'mensual':
-        $stmt = $db->prepare("SELECT DATE_FORMAT(fecha, '%Y-%m') as mes, COUNT(*) as cargas, SUM(litros) as litros, SUM(importe_total) as total_comb FROM combustible WHERE fecha BETWEEN ? AND ? GROUP BY mes ORDER BY mes");
+        $stmt = $db->prepare("SELECT DATE_FORMAT(fecha, '%Y-%m') as mes, COUNT(*) as cargas, SUM(litros) as litros, SUM(litros * precio_litro) as total_comb FROM combustible WHERE fecha BETWEEN ? AND ? GROUP BY mes ORDER BY mes");
         $stmt->execute([$desde, $hasta]);
         $combustibleData = $stmt->fetchAll();
         $stmt2 = $db->prepare("SELECT DATE_FORMAT(fecha, '%Y-%m') as mes, COUNT(*) as servicios, SUM(costo) as total_mant FROM mantenimientos WHERE fecha BETWEEN ? AND ? GROUP BY mes ORDER BY mes");
@@ -201,7 +201,7 @@ switch ($tipo) {
 
     case 'anual':
         $stmt = $db->prepare("
-            SELECT DATE_FORMAT(fecha, '%Y') as anio, COUNT(*) as cargas, SUM(litros) as litros, SUM(importe_total) as total_comb,
+            SELECT DATE_FORMAT(fecha, '%Y') as anio, COUNT(*) as cargas, SUM(litros) as litros, SUM(litros * precio_litro) as total_comb,
                 (SELECT COUNT(*) FROM mantenimientos WHERE YEAR(fecha) = ?) as servicios,
                 (SELECT SUM(costo) FROM mantenimientos WHERE YEAR(fecha) = ?) as total_mant,
                 (SELECT COUNT(*) FROM km_recorrido WHERE YEAR(fecha) = ?) as viajes,
