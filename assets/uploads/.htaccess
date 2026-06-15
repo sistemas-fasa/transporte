@@ -1,0 +1,18 @@
+# Apache 2.4+ syntax
+<IfModule mod_authz_core.c>
+    # Deny all by default
+    Require all denied
+    # Allow image files
+    <FilesMatch "\.(jpg|jpeg|png|gif|bmp|webp)$">
+        Require all granted
+    </FilesMatch>
+</IfModule>
+
+# Fallback for Apache 2.2
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+    <FilesMatch "\.(jpg|jpeg|png|gif|bmp|webp)$">
+        Allow from all
+    </FilesMatch>
+</IfModule>
