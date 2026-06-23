@@ -92,6 +92,19 @@ $eficiencia = $kmAntData['total'] > 0 ? (($kmData['total'] - $kmAntData['total']
 // Rendimiento km/l
 $rendimiento = $combData['litros'] > 0 ? ($kmData['total'] / $combData['litros']) : 0;
 
+// Ultimas cargas de combustible
+$ultimasCargas = [];
+try {
+    $cargasSql = "SELECT co.fecha, co.litros, co.precio_litro, c.patente FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion WHERE ";
+    $cargasParams = [];
+    if ($userId) { $cargasSql .= "co.id_usuario_registra = ?"; $cargasParams[] = $userId; }
+    elseif ($idChofer) { $cargasSql .= "co.id_chofer = ?"; $cargasParams[] = $idChofer; }
+    $cargasSql .= " ORDER BY co.fecha DESC LIMIT 5";
+    $stmtCargas = $db->prepare($cargasSql);
+    $stmtCargas->execute($cargasParams);
+    $ultimasCargas = $stmtCargas->fetchAll();
+} catch (Exception $e) {}
+
 // KM sin autorizar (estado = 'cerrado', no aprobado)
 $kmSinAutSql = "SELECT COALESCE(SUM(km_recorridos),0) as total FROM km_recorrido WHERE MONTH(fecha) = ? AND YEAR(fecha) = ? AND estado = 'cerrado'";
 $kmSinAutParams = [$mes, $anio];
@@ -195,19 +208,11 @@ Sin vehiculos asignados
 </div>
 
 <!-- Fuel Counter + Details -->
-<div class="grid grid-cols-2 gap-3">
 <div class="bg-secondary-container/40 rounded-xl p-4 text-center border border-secondary-container/60">
 <span class="font-label-caps text-outline text-[10px] tracking-widest uppercase">Combustible</span>
 <div class="flex items-baseline justify-center gap-1 mt-2">
 <span class="font-data-mono text-3xl font-bold text-primary tabular-nums"><?= number_format($combData['litros'], 1) ?></span>
 <span class="text-on-surface-variant font-bold text-xs">LTS</span>
-</div>
-</div>
-<div class="bg-tertiary-fixed/40 rounded-xl p-4 text-center border border-tertiary-fixed/60">
-<span class="font-label-caps text-outline text-[10px] tracking-widest uppercase">Gasto</span>
-<div class="flex items-baseline justify-center gap-1 mt-2">
-<span class="font-data-mono text-3xl font-bold text-tertiary tabular-nums">$<?= number_format($combData['total'], 0) ?></span>
-</div>
 </div>
 </div>
 
@@ -269,28 +274,64 @@ Sin vehiculos asignados
 </div>
 <?php endif; ?>
 
+<!-- Ultimas Cargas -->
+<?php if (!empty($ultimasCargas)): ?>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden card-modern">
+<div class="px-6 py-4 border-b border-outline-variant flex items-center justify-between">
+<h3 class="font-headline-sm text-headline-sm text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-lg">local_gas_station</span> Ultimas Cargas
+</h3>
+</div>
+<div class="divide-y divide-outline-variant">
+<?php foreach ($ultimasCargas as $carga): ?>
+<div class="px-6 py-4 flex items-center justify-between hover:bg-surface-container-low transition-colors">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary/5 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">local_gas_station</span>
+</div>
+<div>
+<p class="font-bold text-primary text-sm"><?= htmlspecialchars($carga['patente']) ?></p>
+<p class="text-xs text-on-surface-variant"><?= date('d/m/Y H:i', strtotime($carga['fecha'])) ?></p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-data-mono text-primary font-bold"><?= number_format($carga['litros'], 1) ?> L</p>
+<p class="text-xs text-on-surface-variant">$<?= number_format($carga['precio_litro'], 2) ?>/L</p>
+</div>
+</div>
+<?php endforeach; ?>
+</div>
+</div>
+<?php endif; ?>
+
 <!-- Quick Actions -->
 <div class="space-y-4">
 <h3 class="font-label-caps text-on-surface-variant px-1">ACCIONES RAPIDAS</h3>
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-<a href="<?= BASE_URL ?>/chofer/cargar_combustible.php" class="flex flex-col items-center justify-center gap-4 p-8 bg-surface-container-lowest border border-outline-variant rounded-xl hover:bg-primary-container hover:text-on-primary transition-all duration-300 group cursor-pointer active:scale-95">
-<div class="bg-secondary-fixed w-16 h-16 rounded-full flex items-center justify-center group-hover:bg-on-primary-container/20">
+<?php if (hasPermission('combustible_cargar')): ?>
+<a href="<?= BASE_URL ?>/chofer/cargar_combustible.php" class="card-modern flex flex-col items-center justify-center gap-4 p-8 bg-primary text-on-primary border border-white/10 rounded-xl hover:bg-primary/90 transition-all duration-300 group cursor-pointer active:scale-95">
+<div class="bg-white/15 w-16 h-16 rounded-full flex items-center justify-center group-hover:bg-white/25 transition-all">
 <span class="material-symbols-outlined text-4xl">local_gas_station</span>
 </div>
 <span class="font-headline-sm text-headline-sm">Cargar Combustible</span>
 </a>
-<a href="<?= BASE_URL ?>/chofer/registrar_mantenimiento.php" class="flex flex-col items-center justify-center gap-4 p-8 bg-surface-container-lowest border border-outline-variant rounded-xl hover:bg-primary-container hover:text-on-primary transition-all duration-300 group cursor-pointer active:scale-95">
-<div class="bg-tertiary-fixed w-16 h-16 rounded-full flex items-center justify-center group-hover:bg-on-primary-container/20">
+<?php endif; ?>
+<?php if (hasPermission('mantenimiento_crear')): ?>
+<a href="<?= BASE_URL ?>/chofer/registrar_mantenimiento.php" class="card-modern flex flex-col items-center justify-center gap-4 p-8 bg-primary text-on-primary border border-white/10 rounded-xl hover:bg-primary/90 transition-all duration-300 group cursor-pointer active:scale-95">
+<div class="bg-white/15 w-16 h-16 rounded-full flex items-center justify-center group-hover:bg-white/25 transition-all">
 <span class="material-symbols-outlined text-4xl">build</span>
 </div>
 <span class="font-headline-sm text-headline-sm">Registrar Mantenimiento</span>
 </a>
-<a href="<?= BASE_URL ?>/chofer/viajes.php" class="flex flex-col items-center justify-center gap-4 p-8 bg-surface-container-lowest border border-outline-variant rounded-xl hover:bg-primary-container hover:text-on-primary transition-all duration-300 group cursor-pointer active:scale-95">
-<div class="bg-primary-fixed w-16 h-16 rounded-full flex items-center justify-center group-hover:bg-on-primary-container/20">
+<?php endif; ?>
+<?php if (hasPermission('kilometraje_cargar')): ?>
+<a href="<?= BASE_URL ?>/chofer/viajes.php" class="card-modern flex flex-col items-center justify-center gap-4 p-8 bg-primary text-on-primary border border-white/10 rounded-xl hover:bg-primary/90 transition-all duration-300 group cursor-pointer active:scale-95">
+<div class="bg-white/15 w-16 h-16 rounded-full flex items-center justify-center group-hover:bg-white/25 transition-all">
 <span class="material-symbols-outlined text-4xl">map</span>
 </div>
 <span class="font-headline-sm text-headline-sm">Ver Mis Viajes</span>
 </a>
+<?php endif; ?>
 </div>
 </div>
 

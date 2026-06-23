@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS camiones (
     capacidad_tanque DECIMAL(10,2) DEFAULT NULL,
     vtv DATE DEFAULT NULL,
     tara DECIMAL(10,2) DEFAULT NULL,
+    tipo VARCHAR(50) DEFAULT 'camion',
     estado ENUM('activo', 'mantenimiento', 'fuera_de_servicio') DEFAULT 'activo',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

@@ -91,7 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $db->prepare("INSERT INTO combustible (fecha, id_chofer, id_camion, estacion_servicio, litros, precio_litro, kilometraje_al_cargar, foto_ticket, id_usuario_registra) VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$idChofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $foto_ticket, $userId]);
             registrarAuditoria($userId, 'create', 'combustible', $db->lastInsertId(), "Carga de $litros L para camion ID $id_camion");
-            $mensaje = 'Carga de combustible registrada exitosamente';
+            header('Location: ' . BASE_URL . '/chofer/panel.php?ok=carga_combustible');
+            exit;
         } catch (Exception $e) {
             $error = 'Error: ' . $e->getMessage();
         }
@@ -124,7 +125,7 @@ if ($idChofer) {
 
 <?php if ($mensaje): ?><div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($mensaje) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($error) ?></div><?php endif; ?>
-<?php if (empty($camionesAsignados)): ?><div class="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg mb-4">No tiene un camion asignado. Contacte al administrador.</div><?php endif; ?>
+<?php if (empty($camionesAsignados)): ?><div class="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg mb-4">No tiene un vehiculo asignado. Contacte al administrador.</div><?php endif; ?>
 
 <form method="POST" enctype="multipart/form-data" class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
 <div class="lg:col-span-8 bg-surface-container-lowest border border-outline-variant p-lg">
@@ -139,7 +140,7 @@ if ($idChofer) {
 <?php endforeach; ?>
 </select>
 <div id="camionInfo" class="bg-primary-container/10 p-4 rounded-lg <?= count($camionesAsignados) === 1 ? '' : 'hidden' ?>">
-<p class="font-bold" id="camionInfoText"><?= count($camionesAsignados) === 1 ? 'Camion: ' . htmlspecialchars($camionesAsignados[0]['patente']) . ' - KM Actual: ' . number_format((float)($ultimoKmPorCamion[$camionesAsignados[0]['id_camion']] ?? $camionesAsignados[0]['kilometraje_actual']), 0) : 'Seleccione un camion' ?></p>
+<p class="font-bold" id="camionInfoText"><?= count($camionesAsignados) === 1 ? 'Vehiculo: ' . htmlspecialchars($camionesAsignados[0]['patente']) . ' - KM Actual: ' . number_format((float)($ultimoKmPorCamion[$camionesAsignados[0]['id_camion']] ?? $camionesAsignados[0]['kilometraje_actual']), 0) : 'Seleccione un vehiculo' ?></p>
 </div>
 </div>
 <?php endif; ?>
@@ -266,7 +267,7 @@ camionSelect.addEventListener('change', function() {
 const opt = this.options[this.selectedIndex];
 if (opt && opt.value) {
 const km = opt.getAttribute('data-km') || '0';
-camionInfoText.textContent = 'Camion: ' + opt.text + ' - KM Actual: ' + Number(km).toLocaleString('es-ES');
+camionInfoText.textContent = 'Vehiculo: ' + opt.text + ' - KM Actual: ' + Number(km).toLocaleString('es-ES');
 camionInfo.classList.remove('hidden');
 } else {
 camionInfo.classList.add('hidden');

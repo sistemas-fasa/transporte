@@ -76,13 +76,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <?php if ($mensaje): ?><div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($mensaje) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($error) ?></div><?php endif; ?>
-<?php if (!$camion): ?><div class="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg mb-4">No tiene un camion asignado.</div><?php endif; ?>
+<?php if (!$camion): ?><div class="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg mb-4">No tiene un vehiculo asignado.</div><?php endif; ?>
 
 <form method="POST" enctype="multipart/form-data" class="bg-surface-container-lowest border border-outline-variant p-lg max-w-2xl">
 <?php if ($camion): ?>
 <input type="hidden" name="id_camion" value="<?= $camion['id_camion'] ?>"/>
 <div class="bg-primary-container/10 p-4 rounded-lg mb-6">
-<p class="font-bold">Camion: <?= htmlspecialchars($camion['marca'] . ' ' . $camion['patente']) ?></p>
+<p class="font-bold">Vehiculo: <?= htmlspecialchars($camion['marca'] . ' ' . $camion['patente']) ?></p>
 </div>
 <?php endif; ?>
 

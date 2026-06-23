@@ -120,6 +120,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Exception $e) {
             $error = 'Error al quitar asignacion';
         }
+    } elseif ($action === 'asociar_chofer') {
+        $id = (int)($_POST['id_usuario'] ?? 0);
+        $idChofer = (int)($_POST['id_chofer'] ?? 0);
+        if ($id && $idChofer) {
+            try {
+                $db->prepare("UPDATE usuarios SET id_chofer = ? WHERE id_usuario = ?")->execute([$idChofer, $id]);
+                $db->prepare("UPDATE choferes SET usuario_id = ? WHERE id_chofer = ?")->execute([$id, $idChofer]);
+                registrarAuditoria(getCurrentUserId(), 'asociar_chofer', 'usuarios', $id, "Asocio chofer ID $idChofer a usuario ID $id");
+                $mensaje = 'Chofer asociado exitosamente';
+            } catch (Exception $e) {
+                $error = 'Error al asociar chofer: ' . $e->getMessage();
+            }
+        }
+    } elseif ($action === 'desasociar_chofer') {
+        $id = (int)($_POST['id_usuario'] ?? 0);
+        if ($id) {
+            try {
+                $stmt = $db->prepare("SELECT id_chofer FROM usuarios WHERE id_usuario = ?");
+                $stmt->execute([$id]);
+                $idChofer = $stmt->fetchColumn();
+                if ($idChofer) {
+                    $db->prepare("UPDATE choferes SET usuario_id = NULL WHERE id_chofer = ?")->execute([$idChofer]);
+                }
+                $db->prepare("UPDATE usuarios SET id_chofer = NULL WHERE id_usuario = ?")->execute([$id]);
+                registrarAuditoria(getCurrentUserId(), 'desasociar_chofer', 'usuarios', $id, "Desasocio chofer de usuario ID $id");
+                $mensaje = 'Chofer desasociado exitosamente';
+            } catch (Exception $e) {
+                $error = 'Error al desasociar chofer: ' . $e->getMessage();
+            }
+        }
     } elseif ($action === 'reset_password') {
         $id = (int)($_POST['id_usuario'] ?? 0);
         $nueva_pass = trim($_POST['nueva_password'] ?? '');
@@ -140,7 +170,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $buscar = $_GET['buscar'] ?? '';
-$sql = "SELECT u.*, GROUP_CONCAT(DISTINCT r.nombre SEPARATOR ', ') as roles_nombre
+$sql = "SELECT u.*, 
+        GROUP_CONCAT(DISTINCT r.nombre SEPARATOR ', ') as roles_nombre,
+        (SELECT CONCAT(c.nombre, ' ', c.apellido) FROM choferes c WHERE c.id_chofer = u.id_chofer) as chofer_asociado
         FROM usuarios u
         LEFT JOIN usuario_rol ur ON u.id_usuario = ur.id_usuario
         LEFT JOIN roles r ON ur.id_rol = r.id_rol
@@ -157,6 +189,8 @@ $usuariosList = $usuarios->fetchAll();
 
 $rolesList = $db->query("SELECT id_rol, nombre, descripcion FROM roles ORDER BY nombre")->fetchAll();
 $camionesActivos = $db->query("SELECT id_camion, patente, marca, modelo FROM camiones WHERE estado = 'activo' ORDER BY patente")->fetchAll();
+$choferesDisponibles = $db->query("SELECT c.*, CONCAT(c.nombre, ' ', c.apellido) as nombre_completo FROM choferes c ORDER BY c.apellido ASC")->fetchAll();
+$choferesAsociados = $db->query("SELECT id_chofer FROM usuarios WHERE id_chofer IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN);
 
 // Obtener vehiculos asignados a cada usuario
 $vehiculosPorUsuario = [];
@@ -192,28 +226,27 @@ foreach ($stmtV->fetchAll() as $v) {
 
 <!-- Table -->
 <div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap overflow-x-auto">
-<table class="w-full min-w-[600px]">
+<table class="w-full">
 <thead class="bg-surface-container-high/50">
 <tr>
-<th class="px-2 md:px-6 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">ID</th>
-<th class="px-2 md:px-6 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">USUARIO</th>
-<th class="px-2 md:px-6 py-3 font-label-caps text-[10px] text-on-surface-variant text-left hidden md:table-cell">NOMBRE</th>
-<th class="px-2 md:px-6 py-3 font-label-caps text-[10px] text-on-surface-variant text-left hidden sm:table-cell">ROL</th>
-<th class="px-2 md:px-6 py-3 font-label-caps text-[10px] text-on-surface-variant text-center">ESTADO</th>
-<th class="px-2 md:px-6 py-3 font-label-caps text-[10px] text-on-surface-variant text-left hidden xl:table-cell">ALTA</th>
-<th class="px-2 md:px-6 py-3 font-label-caps text-[10px] text-on-surface-variant text-left hidden xl:table-cell">ULTIMO ACCESO</th>
-<th class="px-2 md:px-6 py-3 font-label-caps text-[10px] text-on-surface-variant text-center">ACCIONES</th>
+<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-left">ID</th>
+<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-left">USUARIO</th>
+<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-left hidden md:table-cell">NOMBRE</th>
+<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-center hidden lg:table-cell">ROL</th>
+<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-center">EST</th>
+<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-left hidden xl:table-cell">CHOFER</th>
+<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-center">ACC</th>
 </tr>
 </thead>
 <tbody class="divide-y divide-outline-variant" id="usuariosTableBody">
 <?php foreach ($usuariosList as $u): ?>
 <tr class="usuario-row hover:bg-surface-container transition-colors" data-search="<?= strtolower(htmlspecialchars($u['username'] . ' ' . $u['nombre'] . ' ' . $u['apellido'] . ' ' . $u['email'])) ?>">
-<td class="px-2 md:px-6 py-3 font-data-mono font-bold text-primary text-xs md:text-sm">#<?= $u['id_usuario'] ?></td>
-<td class="px-2 md:px-6 py-3">
-<span class="font-medium text-xs md:text-sm"><?= htmlspecialchars($u['username']) ?></span>
+<td class="px-1.5 md:px-2 py-2 font-data-mono font-bold text-primary text-[11px]">#<?= $u['id_usuario'] ?></td>
+<td class="px-1.5 md:px-2 py-2">
+<span class="font-medium text-[11px]"><?= htmlspecialchars($u['username']) ?></span>
 </td>
-<td class="px-2 md:px-6 py-3 hidden md:table-cell text-xs md:text-sm"><?= htmlspecialchars(trim(($u['nombre'] ?? '') . ' ' . ($u['apellido'] ?? ''))) ?: '-' ?></td>
-<td class="px-2 md:px-6 py-3 hidden sm:table-cell">
+<td class="px-1.5 md:px-2 py-2 hidden md:table-cell text-[11px]"><?= htmlspecialchars(trim(($u['nombre'] ?? '') . ' ' . ($u['apellido'] ?? ''))) ?: '-' ?></td>
+<td class="px-1.5 md:px-2 py-2 text-center hidden lg:table-cell">
 <?php
 $rolesStr = $u['roles_nombre'] ?? '';
 $rolClass = '';
@@ -221,38 +254,45 @@ if (strpos($rolesStr, 'Administrador') !== false) $rolClass = 'bg-purple-100 tex
 elseif (strpos($rolesStr, 'Supervisor') !== false) $rolClass = 'bg-blue-100 text-blue-800 border-blue-200';
 else $rolClass = 'bg-green-100 text-green-800 border-green-200';
 ?>
-<span class="px-2 py-0.5 rounded-full text-[9px] md:text-[10px] font-bold uppercase border <?= $rolClass ?>"><?= htmlspecialchars($rolesStr ?: 'Sin rol') ?></span>
+<span class="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase border <?= $rolClass ?>"><?= htmlspecialchars($rolesStr ?: '-') ?></span>
 </td>
-<td class="px-2 md:px-6 py-3 text-center">
-<span class="px-2 py-0.5 rounded-full text-[9px] md:text-[10px] font-bold uppercase <?= $u['activo'] ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200' ?>"><?= $u['activo'] ? 'Activo' : 'Inactivo' ?></span>
+<td class="px-1.5 md:px-2 py-2 text-center">
+<span class="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase <?= $u['activo'] ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200' ?>"><?= $u['activo'] ? 'S' : 'N' ?></span>
 </td>
-<td class="px-2 md:px-6 py-3 text-xs hidden xl:table-cell"><?= $u['created_at'] ? date('d/m/Y', strtotime($u['created_at'])) : '-' ?></td>
-<td class="px-2 md:px-6 py-3 text-xs hidden xl:table-cell"><?= $u['ultimo_acceso'] ? date('d/m/Y H:i', strtotime($u['ultimo_acceso'])) : 'Nunca' ?></td>
-<td class="px-2 md:px-6 py-3">
-<div class="flex gap-1 justify-center flex-nowrap">
+<td class="px-1.5 md:px-2 py-2 hidden xl:table-cell">
+<?php if ($u['chofer_asociado']): ?>
+<div class="flex items-center gap-1">
+<span class="text-[10px]"><?= htmlspecialchars($u['chofer_asociado']) ?></span>
+<form method="POST" class="inline" onsubmit="return confirm('¿Desasociar chofer?')">
+<input type="hidden" name="action" value="desasociar_chofer"/>
+<input type="hidden" name="id_usuario" value="<?= $u['id_usuario'] ?>"/>
+<button type="submit" class="text-red-500 hover:text-red-700 text-[10px]" title="Desasociar chofer">&times;</button>
+</form>
+</div>
+<?php else: ?>
+<button onclick="openAsociarChofer(<?= $u['id_usuario'] ?>)" class="text-[10px] text-primary underline hover:opacity-80">+</button>
+<?php endif; ?>
+</td>
+<td class="px-1.5 md:px-2 py-2">
+<div class="flex gap-0.5 justify-center flex-nowrap">
 <?php if (hasPermission('usuarios_editar')): ?>
-<button onclick="editUsuario(<?= $u['id_usuario'] ?>)" class="px-2 py-1 bg-secondary-container text-on-secondary-container rounded text-[10px] font-bold hover:opacity-80 flex items-center gap-0.5" title="Editar">
-<span class="material-symbols-outlined text-xs">edit</span>
-<span class="hidden lg:inline">Editar</span>
+<button onclick="editUsuario(<?= $u['id_usuario'] ?>)" class="p-1 bg-secondary-container text-on-secondary-container rounded hover:opacity-80" title="Editar">
+<span class="material-symbols-outlined text-[14px]">edit</span>
 </button>
 <?php endif; ?>
-<button onclick="openResetPass(<?= $u['id_usuario'] ?>)" class="px-2 py-1 bg-amber-50 text-amber-700 rounded text-[10px] font-bold hover:bg-amber-100 flex items-center gap-0.5" title="Restablecer contraseña">
-<span class="material-symbols-outlined text-xs">key</span>
-<span class="hidden lg:inline">Pass</span>
+<button onclick="openResetPass(<?= $u['id_usuario'] ?>)" class="p-1 bg-amber-50 text-amber-700 rounded hover:bg-amber-100" title="Restablecer contraseña">
+<span class="material-symbols-outlined text-[14px]">key</span>
 </button>
-<button onclick="openAsignarVehiculo(<?= $u['id_usuario'] ?>)" class="px-2 py-1 bg-blue-50 text-blue-700 rounded text-[10px] font-bold hover:bg-blue-100 flex items-center gap-0.5" title="Asignar vehículo">
-<span class="material-symbols-outlined text-xs">directions_car</span>
-<span class="hidden lg:inline">Veh.</span>
+<button onclick="openAsignarVehiculo(<?= $u['id_usuario'] ?>)" class="p-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100" title="Asignar vehículo">
+<span class="material-symbols-outlined text-[14px]">directions_car</span>
 </button>
 <?php if ($u['activo']): ?>
-<button onclick="toggleEstado(<?= $u['id_usuario'] ?>, 'desactivar')" class="px-2 py-1 bg-red-50 text-red-600 rounded text-[10px] font-bold hover:bg-red-100 flex items-center gap-0.5" title="Desactivar">
-<span class="material-symbols-outlined text-xs">block</span>
-<span class="hidden lg:inline">Desact.</span>
+<button onclick="toggleEstado(<?= $u['id_usuario'] ?>, 'desactivar')" class="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100" title="Desactivar">
+<span class="material-symbols-outlined text-[14px]">block</span>
 </button>
 <?php else: ?>
-<button onclick="toggleEstado(<?= $u['id_usuario'] ?>, 'activar')" class="px-2 py-1 bg-green-50 text-green-600 rounded text-[10px] font-bold hover:bg-green-100 flex items-center gap-0.5" title="Activar">
-<span class="material-symbols-outlined text-xs">check_circle</span>
-<span class="hidden lg:inline">Activar</span>
+<button onclick="toggleEstado(<?= $u['id_usuario'] ?>, 'activar')" class="p-1 bg-green-50 text-green-600 rounded hover:bg-green-100" title="Activar">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
 </button>
 <?php endif; ?>
 </div>
@@ -320,6 +360,35 @@ else $rolClass = 'bg-green-100 text-green-800 border-green-200';
 <div class="flex gap-3 pt-4">
 <button type="button" onclick="closeModal('modalUsuario')" class="flex-1 border border-outline text-primary py-2 rounded-lg font-bold">Cancelar</button>
 <button type="submit" class="flex-1 bg-primary text-on-primary py-2 rounded-lg font-bold">Guardar</button>
+</div>
+</form>
+</div>
+</div>
+
+<!-- Modal Asociar Chofer -->
+<div id="modalAsociarChofer" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+<div class="bg-surface-container-lowest rounded-xl w-full max-w-md">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h3 class="font-headline-sm text-headline-sm text-primary">Asociar Chofer</h3>
+<button onclick="closeModal('modalAsociarChofer')"><span class="material-symbols-outlined">close</span></button>
+</div>
+<form method="POST" class="p-6 space-y-4">
+<input type="hidden" name="action" value="asociar_chofer"/>
+<input type="hidden" name="id_usuario" id="asociarChoferUserId" value=""/>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Seleccionar Chofer</label>
+<select name="id_chofer" id="asociarChoferSelect" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required>
+<option value="">Seleccione un chofer...</option>
+<?php foreach ($choferesDisponibles as $ch): ?>
+<?php $yaAsociado = in_array($ch['id_chofer'], $choferesAsociados); ?>
+<option value="<?= $ch['id_chofer'] ?>" data-asociado="<?= $yaAsociado ? '1' : '0' ?>"><?= htmlspecialchars($ch['nombre_completo']) ?> (<?= htmlspecialchars($ch['dni']) ?>)<?= $yaAsociado ? ' [YA ASOCIADO]' : '' ?></option>
+<?php endforeach; ?>
+</select>
+</div>
+<p id="asociarChoferWarning" class="text-xs text-amber-600 hidden">Este chofer ya esta asociado a otro usuario. Al confirmar se reasignara.</p>
+<div class="flex gap-3 pt-4">
+<button type="button" onclick="closeModal('modalAsociarChofer')" class="flex-1 border border-outline text-primary py-2 rounded-lg font-bold">Cancelar</button>
+<button type="submit" class="flex-1 bg-primary text-on-primary py-2 rounded-lg font-bold">Asociar</button>
 </div>
 </form>
 </div>
@@ -426,6 +495,22 @@ document.getElementById('resetUserId').value = id;
 openModal('modalResetPass');
 }
 
+function openAsociarChofer(userId) {
+document.getElementById('asociarChoferUserId').value = userId;
+document.getElementById('asociarChoferSelect').value = '';
+document.getElementById('asociarChoferWarning').classList.add('hidden');
+openModal('modalAsociarChofer');
+}
+
+document.getElementById('asociarChoferSelect')?.addEventListener('change', function() {
+var warning = document.getElementById('asociarChoferWarning');
+if (this.options[this.selectedIndex]?.dataset.asociado === '1') {
+warning.classList.remove('hidden');
+} else {
+warning.classList.add('hidden');
+}
+});
+
 var vehiculosData = <?= json_encode($vehiculosPorUsuario) ?>;
 
 function openAsignarVehiculo(userId) {
@@ -486,6 +571,9 @@ if (e.target === this) closeModal('modalResetPass');
 });
 document.getElementById('modalAsignarVehiculo').addEventListener('click', function(e) {
 if (e.target === this) closeModal('modalAsignarVehiculo');
+});
+document.getElementById('modalAsociarChofer').addEventListener('click', function(e) {
+if (e.target === this) closeModal('modalAsociarChofer');
 });
 </script>
 

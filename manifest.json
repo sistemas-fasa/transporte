@@ -1,0 +1,29 @@
+{
+"name": "Gestion de Vehiculos",
+"short_name": "GdV",
+"description": "Sistema de Gestion de Vehiculos",
+"start_url": "/sistema/index.php",
+"display": "fullscreen",
+"display_override": ["fullscreen", "standalone", "minimal-ui"],
+"orientation": "portrait-primary",
+"background_color": "#f7f9fb",
+"theme_color": "#091426",
+"scope": "/sistema/",
+"categories": ["business", "productivity"],
+"lang": "es-AR",
+"icons": [
+{
+"src": "/sistema/Logo/Logo_App.png",
+"sizes": "192x192",
+"type": "image/png",
+"purpose": "any"
+},
+{
+"src": "/sistema/Logo/Logo_App.png",
+"sizes": "512x512",
+"type": "image/png",
+"purpose": "any maskable"
+}
+],
+"screenshots": []
+}

@@ -67,11 +67,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Error al actualizar (si cambiaste el ID, verifica que no exista otro igual): ' . $e->getMessage();
             }
         }
+    } elseif ($action === 'asociar_usuario') {
+        $idChofer = (int)($_POST['id_chofer'] ?? 0);
+        $idUsuario = (int)($_POST['id_usuario'] ?? 0);
+        if ($idChofer && $idUsuario) {
+            try {
+                $db->prepare("UPDATE usuarios SET id_chofer = ? WHERE id_usuario = ?")->execute([$idChofer, $idUsuario]);
+                $db->prepare("UPDATE choferes SET usuario_id = ? WHERE id_chofer = ?")->execute([$idUsuario, $idChofer]);
+                registrarAuditoria(getCurrentUserId(), 'asociar_usuario', 'choferes', $idChofer, "Asocio usuario ID $idUsuario a chofer ID $idChofer");
+                $mensaje = 'Usuario asociado exitosamente';
+            } catch (Exception $e) {
+                $error = 'Error al asociar usuario: ' . $e->getMessage();
+            }
+        }
+    } elseif ($action === 'desasociar_usuario') {
+        $idChofer = (int)($_POST['id_chofer'] ?? 0);
+        if ($idChofer) {
+            try {
+                $stmt = $db->prepare("SELECT id_usuario FROM choferes WHERE id_chofer = ?");
+                $stmt->execute([$idChofer]);
+                $idUsuario = $stmt->fetchColumn();
+                if ($idUsuario) {
+                    $db->prepare("UPDATE usuarios SET id_chofer = NULL WHERE id_usuario = ?")->execute([$idUsuario]);
+                } else {
+                    $db->prepare("UPDATE usuarios SET id_chofer = NULL WHERE id_chofer = ?")->execute([$idChofer]);
+                }
+                $db->prepare("UPDATE choferes SET usuario_id = NULL WHERE id_chofer = ?")->execute([$idChofer]);
+                registrarAuditoria(getCurrentUserId(), 'desasociar_usuario', 'choferes', $idChofer, "Desasocio usuario de chofer ID $idChofer");
+                $mensaje = 'Usuario desasociado exitosamente';
+            } catch (Exception $e) {
+                $error = 'Error al desasociar usuario: ' . $e->getMessage();
+            }
+        }
     }
 }
 
 $buscar = $_GET['buscar'] ?? '';
-$sql = "SELECT c.*, (SELECT COUNT(*) FROM asignaciones WHERE id_chofer = c.id_chofer AND activa = 1) as tiene_camion FROM choferes c WHERE 1=1";
+$sql = "SELECT c.*, 
+        (SELECT COUNT(*) FROM asignaciones WHERE id_chofer = c.id_chofer AND activa = 1) as tiene_camion,
+        (SELECT username FROM usuarios WHERE id_chofer = c.id_chofer LIMIT 1) as usuario_asociado_nombre,
+        (SELECT id_usuario FROM usuarios WHERE id_chofer = c.id_chofer LIMIT 1) as usuario_asociado_id
+        FROM choferes c WHERE 1=1";
 $params = [];
 if ($buscar) {
     $sql .= " AND (c.nombre LIKE ? OR c.apellido LIKE ? OR c.dni LIKE ?)";
@@ -81,6 +117,7 @@ $sql .= " ORDER BY c.apellido ASC";
 $choferes = $db->prepare($sql);
 $choferes->execute($params);
 $choferesList = $choferes->fetchAll();
+$usuariosDisponibles = $db->query("SELECT u.id_usuario, u.username, u.nombre, u.apellido FROM usuarios u WHERE u.id_chofer IS NULL OR u.id_chofer = 0 ORDER BY u.username ASC")->fetchAll();
 ?>
 
 <main class="pt-20 pb-24 md:pb-8 md:pl-64 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
@@ -116,6 +153,7 @@ $choferesList = $choferes->fetchAll();
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">LICENCIA</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">VTO LICENCIA</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">TELEFONO</th>
+<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left hidden lg:table-cell">USUARIO</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-center">ESTADO</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-center">ACCIONES</th>
 </tr>
@@ -126,12 +164,26 @@ $choferesList = $choferes->fetchAll();
 <td class="px-6 py-4 font-data-mono font-bold text-primary">#<?= htmlspecialchars($ch['id_chofer']) ?></td>
 <td class="px-6 py-4">
 <span class="font-medium"><?= htmlspecialchars($ch['apellido']) ?> <?= htmlspecialchars($ch['nombre']) ?></span>
-<?php if ($ch['tiene_camion']): ?><span class="ml-2 text-green-600 material-symbols-outlined text-sm" title="Tiene camion asignado">local_shipping</span><?php endif; ?>
+<?php if ($ch['tiene_camion']): ?><span class="ml-2 text-green-600 material-symbols-outlined text-sm" title="Tiene vehiculo asignado">local_shipping</span><?php endif; ?>
 </td>
 <td class="px-6 py-4 font-data-mono"><?= htmlspecialchars($ch['dni']) ?></td>
 <td class="px-6 py-4"><?= htmlspecialchars($ch['licencia'] ?? '-') ?></td>
 <td class="px-6 py-4"><?= $ch['vencimiento_licencia'] ? date('d/m/Y', strtotime($ch['vencimiento_licencia'])) : '-' ?></td>
 <td class="px-6 py-4"><?= htmlspecialchars($ch['telefono'] ?? '-') ?></td>
+<td class="px-6 py-4 hidden lg:table-cell">
+<?php if ($ch['usuario_asociado_nombre']): ?>
+<div class="flex items-center gap-1">
+<span class="text-xs font-medium"><?= htmlspecialchars($ch['usuario_asociado_nombre']) ?></span>
+<form method="POST" class="inline" onsubmit="return confirm('¿Desasociar usuario?')">
+<input type="hidden" name="action" value="desasociar_usuario"/>
+<input type="hidden" name="id_chofer" value="<?= $ch['id_chofer'] ?>"/>
+<button type="submit" class="text-red-500 hover:text-red-700 text-xs" title="Desasociar usuario">&times;</button>
+</form>
+</div>
+<?php else: ?>
+<button onclick="openAsociarUsuario(<?= $ch['id_chofer'] ?>)" class="text-xs text-primary underline hover:opacity-80">+ Asociar</button>
+<?php endif; ?>
+</td>
 <td class="px-6 py-4 text-center">
 <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase <?= $ch['estado'] === 'activo' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200' ?>"><?= $ch['estado'] ?></span>
 </td>
@@ -187,10 +239,42 @@ $choferesList = $choferes->fetchAll();
 </div>
 </div>
 
+<!-- Modal Asociar Usuario -->
+<div id="modalAsociarUsuario" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+<div class="bg-surface-container-lowest rounded-xl w-full max-w-md">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h3 class="font-headline-sm text-headline-sm text-primary">Asociar Usuario</h3>
+<button onclick="closeModal('modalAsociarUsuario')"><span class="material-symbols-outlined">close</span></button>
+</div>
+<form method="POST" class="p-6 space-y-4">
+<input type="hidden" name="action" value="asociar_usuario"/>
+<input type="hidden" name="id_chofer" id="asociarUsuarioChoferId" value=""/>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Seleccionar Usuario</label>
+<select name="id_usuario" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required>
+<option value="">Seleccione un usuario...</option>
+<?php foreach ($usuariosDisponibles as $u): ?>
+<option value="<?= $u['id_usuario'] ?>"><?= htmlspecialchars($u['username'] . ' - ' . trim($u['nombre'] . ' ' . $u['apellido'])) ?></option>
+<?php endforeach; ?>
+</select>
+</div>
+<div class="flex gap-3 pt-4">
+<button type="button" onclick="closeModal('modalAsociarUsuario')" class="flex-1 border border-outline text-primary py-2 rounded-lg font-bold">Cancelar</button>
+<button type="submit" class="flex-1 bg-primary text-on-primary py-2 rounded-lg font-bold">Asociar</button>
+</div>
+</form>
+</div>
+</div>
+
 <script>
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function closeModalandReset() { closeModal('modalChofer'); document.getElementById('choferAction').value = 'create'; document.getElementById('choferId').value = ''; document.getElementById('chnuevo_id').value = ''; }
+
+function openAsociarUsuario(choferId) {
+document.getElementById('asociarUsuarioChoferId').value = choferId;
+openModal('modalAsociarUsuario');
+}
 
 function editChofer(id) {
 fetch('<?= BASE_URL ?>/api/get_data.php?action=chofer&id=' + id).then(r => r.json()).then(data => {
@@ -208,6 +292,10 @@ document.getElementById('modalChoferTitle').textContent = 'Editar Chofer';
 openModal('modalChofer');
 });
 }
+
+document.getElementById('modalAsociarUsuario').addEventListener('click', function(e) {
+if (e.target === this) closeModal('modalAsociarUsuario');
+});
 
 function filterChoferes() {
 const search = document.getElementById('searchChofer').value.toLowerCase();

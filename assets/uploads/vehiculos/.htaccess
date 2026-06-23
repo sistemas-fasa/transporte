@@ -1,0 +1,5 @@
+RewriteEngine Off
+<FilesMatch "\.(php|php3|php4|php5|phtml|pl|cgi|asp|aspx|sh|bat)$">
+Order Deny,Allow
+Deny from all
+</FilesMatch>

@@ -87,47 +87,55 @@ $mantenimientoAlertas = $db->query("
 <main class="pt-20 pb-24 md:pb-8 md:pl-64 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
 <!-- KPI Cards Grid -->
 <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-<div class="bg-surface-container-lowest border border-outline-variant p-4 flex flex-col justify-between min-h-[120px]">
-<div class="flex items-center gap-2 text-secondary mb-2">
-<span class="material-symbols-outlined text-[20px]">local_shipping</span>
-<span class="font-label-caps text-label-caps uppercase">Total Camiones</span>
+<div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
+<div class="flex items-center gap-3 text-secondary mb-3">
+<div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">local_shipping</span>
 </div>
-<div class="font-headline-lg text-[18px] md:text-headline-lg text-primary overflow-x-auto"><?= number_format($totalCamiones['total']) ?></div>
-<div class="text-[10px] text-on-surface-variant font-medium mt-1">OPERATIVOS: <?= number_format($totalCamiones['activos']) ?></div>
+<span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Total Vehiculos</span>
 </div>
-<div class="bg-surface-container-lowest border border-outline-variant p-4 flex flex-col justify-between min-h-[120px]">
-<div class="flex items-center gap-2 text-secondary mb-2">
-<span class="material-symbols-outlined text-[20px]">person</span>
-<span class="font-label-caps text-label-caps uppercase">Total Choferes</span>
+<div class="font-headline-lg text-headline-lg text-primary"><?= number_format($totalCamiones['total']) ?></div>
+<div class="text-[11px] text-on-surface-variant font-medium mt-1.5">OPERATIVOS: <span class="text-green-600 font-bold"><?= number_format($totalCamiones['activos']) ?></span></div>
 </div>
-<div class="font-headline-lg text-[18px] md:text-headline-lg text-primary overflow-x-auto"><?= number_format($totalChoferes['total']) ?></div>
-<div class="text-[10px] text-on-surface-variant font-medium mt-1">ACTIVOS: <?= number_format($totalChoferes['activos']) ?></div>
+<div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
+<div class="flex items-center gap-3 text-secondary mb-3">
+<div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">person</span>
 </div>
-<div class="bg-surface-container-lowest border border-outline-variant p-4 flex flex-col justify-between min-h-[120px]">
-<div class="flex items-center gap-2 text-secondary mb-2">
-<span class="material-symbols-outlined text-[20px]">route</span>
-<span class="font-label-caps text-label-caps uppercase">KM Recorridos Mes</span>
+<span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Total Choferes</span>
 </div>
-<div class="font-headline-lg text-[18px] md:text-headline-lg text-primary overflow-x-auto whitespace-nowrap"><?= number_format($kmData['total'], 0) ?> <span class="text-body-md">km</span></div>
-<div class="text-[10px] text-green-600 font-medium mt-1">MES ACTUAL</div>
+<div class="font-headline-lg text-headline-lg text-primary"><?= number_format($totalChoferes['total']) ?></div>
+<div class="text-[11px] text-on-surface-variant font-medium mt-1.5">ACTIVOS: <span class="text-green-600 font-bold"><?= number_format($totalChoferes['activos']) ?></span></div>
 </div>
-<div class="bg-surface-container-lowest border border-outline-variant p-4 flex flex-col justify-between min-h-[120px]">
-<div class="flex items-center gap-2 text-secondary mb-2">
-<span class="material-symbols-outlined text-[20px]">payments</span>
-<span class="font-label-caps text-label-caps uppercase">Gasto Combustible</span>
+<div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
+<div class="flex items-center gap-3 text-secondary mb-3">
+<div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">route</span>
 </div>
-<div class="font-headline-lg text-[18px] md:text-headline-lg text-primary overflow-x-auto whitespace-nowrap">$<?= number_format($gastoCombData['total'], 2) ?></div>
-<div class="text-[16px] md:text-[18px] font-bold text-green-600 mt-1">LITROS: <?= number_format($litrosData['total'], 2) ?></div>
+<span class="font-label-caps text-label-caps uppercase text-on-surface-variant">KM Recorridos Mes</span>
+</div>
+<div class="font-headline-lg text-headline-lg text-primary"><?= number_format($kmData['total'], 0) ?> <span class="text-body-md text-on-surface-variant">km</span></div>
+<div class="text-[11px] text-green-600 font-bold mt-1.5">MES ACTUAL</div>
+</div>
+<div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
+<div class="flex items-center gap-3 text-secondary mb-3">
+<div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">payments</span>
+</div>
+<span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Gasto Combustible</span>
+</div>
+<div class="font-headline-lg text-headline-lg text-primary">$<?= number_format($gastoCombData['total'], 2) ?></div>
+<div class="text-[11px] text-on-surface-variant font-medium mt-1.5">LITROS: <span class="text-green-600 font-bold"><?= number_format($litrosData['total'], 2) ?></span></div>
 </div>
 </section>
 
 <!-- Bento Layout -->
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 <!-- Alertas -->
-<section class="lg:col-span-7 bg-surface-container-lowest border border-outline-variant p-6">
+<section class="lg:col-span-7 bg-surface-container-lowest border border-outline-variant rounded-xl p-6 card-modern">
 <div class="flex items-center justify-between mb-6">
 <h2 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider">Alertas de Flota</h2>
-<a href="<?= BASE_URL ?>/admin/alertas.php" class="text-primary font-bold text-[12px] underline">Ver Todas</a>
+<a href="<?= BASE_URL ?>/admin/alertas.php" class="text-primary font-bold text-[12px] hover:underline">Ver Todas</a>
 </div>
 <div class="space-y-3">
 <?php if (empty($alertas)): ?>
@@ -159,8 +167,8 @@ $patente = $alerta['patente'] ?? '';
 </section>
 
 <!-- Gasto por camion -->
-<section class="lg:col-span-5 bg-surface-container-lowest border border-outline-variant p-6 flex flex-col">
-<h2 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider mb-6">Gasto por Camion (Mes) - Importe en $</h2>
+<section class="lg:col-span-5 bg-surface-container-lowest border border-outline-variant rounded-xl p-6 flex flex-col card-modern">
+<h2 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider mb-6">Gasto por Camion (Mes)</h2>
 <div class="flex-1 flex flex-col justify-end gap-2">
 <div class="space-y-4">
 <?php foreach ($gastoCamiones as $gc):
@@ -189,11 +197,12 @@ $patente = $alerta['patente'] ?? '';
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
 <!-- Combustible por mes -->
 <div class="bg-surface-container-lowest border border-outline-variant p-6 overflow-x-auto">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 overflow-x-auto card-modern">
 <h2 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider mb-4">Combustible por Mes</h2>
 <canvas id="chartCombustible" height="200"></canvas>
 </div>
 <!-- Rendimiento km/l -->
-<div class="bg-surface-container-lowest border border-outline-variant p-6 overflow-x-auto">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 overflow-x-auto card-modern">
 <h2 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider mb-4">Rendimiento km/l por Camion</h2>
 <canvas id="chartRendimiento" height="200"></canvas>
 </div>
@@ -202,7 +211,7 @@ $patente = $alerta['patente'] ?? '';
 <!-- VTV Proximas a Vencer -->
 <?php if (!empty($vtvAlertas)): ?>
 <section class="mt-8">
-<div class="bg-surface-container-lowest border border-outline-variant overflow-hidden">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden card-modern">
 <div class="p-6 border-b border-outline-variant flex items-center gap-2">
 <span class="material-symbols-outlined text-red-600">assignment</span>
 <h3 class="font-headline-sm text-headline-sm text-primary uppercase">VTV Proximas a Vencer (3 Meses)</h3>
@@ -234,7 +243,7 @@ else { $c = 'yellow'; $label = "$dias dias"; }
 <!-- Proximo Mantenimiento -->
 <?php if (!empty($mantenimientoAlertas)): ?>
 <section class="mt-8">
-<div class="bg-surface-container-lowest border border-outline-variant overflow-hidden">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden card-modern">
 <div class="p-6 border-b border-outline-variant flex items-center gap-2">
 <span class="material-symbols-outlined text-amber-600">build</span>
 <h3 class="font-headline-sm text-headline-sm text-primary uppercase">Proximo Mantenimiento</h3>

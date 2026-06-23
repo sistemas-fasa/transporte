@@ -5,25 +5,25 @@ $bottomNav = [];
 if (isAdmin()) {
     $bottomNav = [
         ['label' => 'Inicio', 'icon' => 'home', 'link' => '/admin/dashboard.php'],
-        ['label' => 'Flota', 'icon' => 'local_shipping', 'link' => '/admin/camiones.php'],
+        ['label' => 'Vehículos', 'icon' => 'local_shipping', 'link' => '/admin/camiones.php'],
         ['label' => 'Reportes', 'icon' => 'analytics', 'link' => '/admin/reportes.php'],
-        ['label' => 'Perfil', 'icon' => 'person', 'link' => '/logout.php'],
     ];
 } else {
     $bottomNav = [
         ['label' => 'Panel', 'icon' => 'home', 'link' => '/chofer/panel.php'],
-        ['label' => 'Viajes', 'icon' => 'map', 'link' => '/chofer/viajes.php'],
-        ['label' => 'Fuel', 'icon' => 'local_gas_station', 'link' => '/chofer/cargar_combustible.php'],
-        ['label' => 'Perfil', 'icon' => 'person', 'link' => '/logout.php'],
     ];
+    if (hasPermission('kilometraje_cargar')) {
+        $bottomNav[] = ['label' => 'Viajes', 'icon' => 'map', 'link' => '/chofer/viajes.php'];
+    }
+    $bottomNav[] = ['label' => 'Combustible', 'icon' => 'local_gas_station', 'link' => '/chofer/cargar_combustible.php'];
 }
-foreach ($bottomNav as $i => $item):
-    $isActive = strpos($_SERVER['PHP_SELF'], $item['link']) !== false;
-    $extraClass = $i === 0 ? 'bg-secondary-container text-on-secondary-container rounded-full px-4 py-1' : 'text-on-surface-variant';
+<?php $currentUrl = $_SERVER['PHP_SELF']; ?>
+<?php foreach ($bottomNav as $item):
+    $isActive = strpos($currentUrl, $item['link']) !== false;
 ?>
-<a href="<?= BASE_URL . $item['link'] ?>" class="flex-1 flex flex-col items-center py-2 gap-1 <?= $extraClass ?> transition-all cursor-pointer">
-<span class="material-symbols-outlined <?= $i === 0 ? 'active-icon' : '' ?>"><?= $item['icon'] ?></span>
-<span class="font-label-caps text-label-caps"><?= $item['label'] ?></span>
+<a href="<?= BASE_URL . $item['link'] ?>" class="flex-1 flex flex-col items-center py-2 gap-1 transition-all cursor-pointer <?= $isActive ? 'bg-secondary-container text-on-secondary-container rounded-full px-4 py-1' : 'text-on-surface-variant' ?>">
+<span class="material-symbols-outlined <?= $isActive ? 'text-on-secondary-container' : '' ?>"><?= $item['icon'] ?></span>
+<span class="font-label-caps text-label-caps"><?= $isActive ? 'font-bold' : '' ?><?= $item['label'] ?></span>
 </a>
 <?php endforeach; ?>
 </nav>

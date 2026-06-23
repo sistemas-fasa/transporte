@@ -1,7 +1,8 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
-requireChoferAccess('kilometraje_cargar');
+requireChofer();
 $pageTitle = 'Mis Viajes';
+$kmHabilitado = hasPermission('kilometraje_cargar');
 
 $db = getDB();
 $userId = getCurrentUserId();
@@ -176,23 +177,27 @@ if ($idChofer) {
 <h2 class="font-headline-lg text-headline-lg text-primary">Mis Viajes</h2>
 <p class="font-body-md text-body-md text-on-surface-variant">Historial de viajes y kilometraje.</p>
 </div>
+<?php if ($kmHabilitado): ?>
 <button onclick="resetModal(); openModal('modalViaje')" class="bg-primary text-on-primary px-6 py-3 rounded-lg font-bold flex items-center gap-2 hover:opacity-90 transition-opacity">
 <span class="material-symbols-outlined">add</span> Cargar KM
 </button>
+<?php endif; ?>
 </div>
 
 <?php if ($mensaje): ?><div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($mensaje) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
-<div class="grid grid-cols-2 gap-4 mb-8">
+<div class="grid grid-cols-<?= $kmHabilitado ? '2' : '1' ?> gap-4 mb-8">
 <div class="bg-surface-container-lowest border border-outline-variant p-4">
 <span class="font-label-caps text-label-caps text-on-surface-variant uppercase">Viajes del Mes</span>
 <div class="font-headline-md text-headline-md text-primary mt-1"><?= $statsData['total'] ?></div>
 </div>
+<?php if ($kmHabilitado): ?>
 <div class="bg-surface-container-lowest border border-outline-variant p-4">
 <span class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM del Mes</span>
 <div class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($statsData['km_total'], 0) ?> km</div>
 </div>
+<?php endif; ?>
 </div>
 
 <!-- Desktop table -->
@@ -204,16 +209,18 @@ if ($idChofer) {
 <th class="px-4 py-3 font-label-caps text-[10px] text-left">CAMION</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-left">ORIGEN</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-left">DESTINO</th>
+<?php if ($kmHabilitado): ?>
 <th class="px-4 py-3 font-label-caps text-[10px] text-right">KM SALIDA</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-right">KM LLEGADA</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-right">KM REC</th>
+<?php endif; ?>
 <th class="px-4 py-3 font-label-caps text-[10px] text-center">ESTADO</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-center"></th>
 </tr>
 </thead>
 <tbody class="divide-y divide-outline-variant">
 <?php if (empty($viajes)): ?>
-<tr><td colspan="9" class="px-4 py-8 text-center text-on-surface-variant">No hay viajes registrados</td></tr>
+<tr><td colspan="<?= $kmHabilitado ? 9 : 6 ?>" class="px-4 py-8 text-center text-on-surface-variant">No hay viajes registrados</td></tr>
 <?php else: ?>
 <?php foreach ($viajes as $v):
 $estado = $v['estado'] ?? 'abierto';
@@ -226,14 +233,16 @@ else $badge = 'bg-amber-100 text-amber-800';
 <td class="px-4 py-3 font-bold whitespace-nowrap"><?= htmlspecialchars($v['patente']) ?></td>
 <td class="px-4 py-3 max-w-[120px] truncate"><?= htmlspecialchars($v['origen'] ?? '-') ?></td>
 <td class="px-4 py-3 max-w-[120px] truncate"><?= htmlspecialchars($v['destino'] ?? '-') ?></td>
+<?php if ($kmHabilitado): ?>
 <td class="px-4 py-3 text-right font-data-mono whitespace-nowrap"><?= number_format($v['km_salida'], 0) ?></td>
 <td class="px-4 py-3 text-right font-data-mono whitespace-nowrap"><?= $v['km_llegada'] !== null ? number_format($v['km_llegada'], 0) : '-' ?></td>
 <td class="px-4 py-3 text-right font-data-mono font-bold whitespace-nowrap"><?= $v['km_recorridos'] !== null ? number_format($v['km_recorridos'], 0) : '-' ?></td>
+<?php endif; ?>
 <td class="px-4 py-3 text-center whitespace-nowrap">
 <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase <?= $badge ?>"><?= $estado ?></span>
 </td>
 <td class="px-4 py-3 text-center whitespace-nowrap">
-<?php if ($estado === 'abierto'): ?>
+<?php if ($estado === 'abierto' && $kmHabilitado): ?>
 <button onclick="editarViaje(<?= $v['id_hoja'] ?>)" class="px-3 py-1 bg-secondary-container text-on-secondary-container rounded text-xs font-bold hover:opacity-80">Cerrar</button>
 <?php endif; ?>
 </td>
@@ -266,21 +275,28 @@ else $badge = 'bg-amber-100 text-amber-800';
 <div class="grid grid-cols-2 gap-2 text-xs mb-3">
 <div><span class="text-on-surface-variant">Origen:</span> <?= htmlspecialchars($v['origen'] ?? '-') ?></div>
 <div><span class="text-on-surface-variant">Destino:</span> <?= htmlspecialchars($v['destino'] ?? '-') ?></div>
+<?php if ($kmHabilitado): ?>
 <div><span class="text-on-surface-variant">KM Salida:</span> <?= number_format($v['km_salida'], 0) ?></div>
 <div><span class="text-on-surface-variant">KM Llegada:</span> <?= $v['km_llegada'] !== null ? number_format($v['km_llegada'], 0) : '-' ?></div>
-</div>
-<div class="flex justify-between items-center">
-<div><span class="text-on-surface-variant text-xs">KM Recorridos:</span> <span class="font-bold"><?= $v['km_recorridos'] !== null ? number_format($v['km_recorridos'], 0) : '-' ?></span></div>
-<?php if ($estado === 'abierto'): ?>
-<button onclick="editarViaje(<?= $v['id_hoja'] ?>)" class="px-3 py-1 bg-secondary-container text-on-secondary-container rounded text-xs font-bold hover:opacity-80">Cerrar</button>
 <?php endif; ?>
 </div>
+<?php if ($kmHabilitado): ?>
+<div class="flex justify-between items-center">
+<div><span class="text-on-surface-variant text-xs">KM Recorridos:</span> <span class="font-bold"><?= $v['km_recorridos'] !== null ? number_format($v['km_recorridos'], 0) : '-' ?></span></div>
+<?php endif; ?>
+<?php if ($estado === 'abierto' && $kmHabilitado): ?>
+<button onclick="editarViaje(<?= $v['id_hoja'] ?>)" class="px-3 py-1 bg-secondary-container text-on-secondary-container rounded text-xs font-bold hover:opacity-80">Cerrar</button>
+<?php endif; ?>
+<?php if ($kmHabilitado): ?>
+</div>
+<?php endif; ?>
 </div>
 <?php endforeach; ?>
 <?php endif; ?>
 </div>
 </main>
 
+<?php if ($kmHabilitado): ?>
 <!-- Modal Nuevo Viaje -->
 <div id="modalViaje" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
 <div class="bg-surface-container-lowest rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto modal-body">
@@ -348,6 +364,7 @@ else $badge = 'bg-amber-100 text-amber-800';
 </form>
 </div>
 </div>
+<?php endif; ?>
 
 <script>
 var editandoId = null;
