@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
+requirePermission('combustible_ver');
 $pageTitle = 'Gestion de Combustible';
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
@@ -9,19 +10,76 @@ $db = getDB();
 $mes = date('m');
 $anio = date('Y');
 
-// Stats
-$statsMes = $db->prepare("SELECT COUNT(*) as cargas, COALESCE(SUM(litros),0) as litros, COALESCE(SUM(litros * precio_litro),0) as total, COALESCE(AVG(precio_litro),0) as precio_prom FROM combustible WHERE MONTH(fecha)=? AND YEAR(fecha)=?");
-$statsMes->execute([$mes, $anio]);
+$buscar = $_GET['buscar'] ?? '';
+$filtroChofer = (int)($_GET['id_chofer'] ?? 0);
+$filtroCamion = (int)($_GET['id_camion'] ?? 0);
+$fechaDesde = $_GET['fecha_desde'] ?? date('Y-m-01');
+$fechaHasta = $_GET['fecha_hasta'] ?? date('Y-m-d');
+
+// Si no es admin pleno, solo ve sus propias cargas
+$idChoferRestriccion = 0;
+$esRestringido = false;
+if (!esAdminPleno()) {
+    $esRestringido = true;
+    $idChoferRestriccion = (int)($_SESSION['id_chofer'] ?? 0);
+    if (!$idChoferRestriccion) {
+        $tmp = $db->prepare("SELECT id_chofer FROM choferes WHERE usuario_id = ? LIMIT 1");
+        $tmp->execute([getCurrentUserId()]);
+        $idChoferRestriccion = (int)$tmp->fetchColumn();
+    }
+    if (!$idChoferRestriccion) {
+        $tmp = $db->prepare("SELECT a.id_chofer FROM vehiculos_usuarios vu JOIN asignaciones a ON vu.vehiculo_id = a.id_camion AND a.activa = 1 WHERE vu.usuario_id = ? LIMIT 1");
+        $tmp->execute([getCurrentUserId()]);
+        $idChoferRestriccion = (int)$tmp->fetchColumn();
+    }
+}
+
+// Stats con filtros
+$sqlStats = "SELECT COUNT(*) as cargas, COALESCE(SUM(litros),0) as litros, COALESCE(SUM(litros * precio_litro),0) as total, COALESCE(AVG(precio_litro),0) as precio_prom FROM combustible WHERE 1=1";
+$paramsStats = [];
+if ($esRestringido && $idChoferRestriccion) {
+    $sqlStats .= " AND id_chofer = ?";
+    $paramsStats[] = $idChoferRestriccion;
+}
+if ($buscar) {
+    $sqlStats .= " AND (id_chofer IN (SELECT id_chofer FROM choferes WHERE nombre LIKE ? OR apellido LIKE ?) OR id_camion IN (SELECT id_camion FROM camiones WHERE patente LIKE ?) OR estacion_servicio LIKE ?)";
+    $paramsStats[] = "%$buscar%"; $paramsStats[] = "%$buscar%"; $paramsStats[] = "%$buscar%"; $paramsStats[] = "%$buscar%";
+}
+if ($filtroChofer) { $sqlStats .= " AND id_chofer = ?"; $paramsStats[] = $filtroChofer; }
+if ($filtroCamion) { $sqlStats .= " AND id_camion = ?"; $paramsStats[] = $filtroCamion; }
+if ($fechaDesde) { $sqlStats .= " AND fecha >= ?"; $paramsStats[] = $fechaDesde . ' 00:00:00'; }
+if ($fechaHasta) { $sqlStats .= " AND fecha <= ?"; $paramsStats[] = $fechaHasta . ' 23:59:59'; }
+$statsMes = $db->prepare($sqlStats);
+$statsMes->execute($paramsStats);
 $stats = $statsMes->fetch();
 
-$buscar = $_GET['buscar'] ?? '';
 $sql = "SELECT co.*, c.patente, ch.nombre, ch.apellido FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion JOIN choferes ch ON co.id_chofer = ch.id_chofer WHERE 1=1";
 $params = [];
+if ($esRestringido && $idChoferRestriccion) {
+    $sql .= " AND co.id_chofer = ?";
+    $params[] = $idChoferRestriccion;
+}
 if ($buscar) {
     $sql .= " AND (c.patente LIKE ? OR ch.nombre LIKE ? OR ch.apellido LIKE ? OR co.estacion_servicio LIKE ?)";
     $params[] = "%$buscar%"; $params[] = "%$buscar%"; $params[] = "%$buscar%"; $params[] = "%$buscar%";
 }
-$sql .= " ORDER BY co.fecha DESC LIMIT 100";
+if ($filtroChofer) {
+    $sql .= " AND co.id_chofer = ?";
+    $params[] = $filtroChofer;
+}
+if ($filtroCamion) {
+    $sql .= " AND co.id_camion = ?";
+    $params[] = $filtroCamion;
+}
+if ($fechaDesde) {
+    $sql .= " AND co.fecha >= ?";
+    $params[] = $fechaDesde . ' 00:00:00';
+}
+if ($fechaHasta) {
+    $sql .= " AND co.fecha <= ?";
+    $params[] = $fechaHasta . ' 23:59:59';
+}
+$sql .= " ORDER BY co.fecha DESC LIMIT 500";
 $registros = $db->prepare($sql);
 $registros->execute($params);
 $registrosList = $registros->fetchAll();
@@ -85,7 +143,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-$camionesList = $db->query("SELECT id_camion, patente, marca, modelo FROM camiones WHERE estado='activo' ORDER BY patente")->fetchAll();
+if ($esRestringido && $idChoferRestriccion) {
+    $camionesList = $db->prepare("SELECT DISTINCT c.id_camion, c.patente, c.marca, c.modelo FROM camiones c LEFT JOIN asignaciones a ON c.id_camion = a.id_camion AND a.activa = 1 LEFT JOIN vehiculos_usuarios vu ON c.id_camion = vu.vehiculo_id WHERE c.estado='activo' AND (a.id_chofer = ? OR vu.usuario_id = ?) ORDER BY c.patente");
+    $camionesList->execute([$idChoferRestriccion, getCurrentUserId()]);
+    $camionesList = $camionesList->fetchAll();
+} else {
+    $camionesList = $db->query("SELECT id_camion, patente, marca, modelo FROM camiones WHERE estado='activo' ORDER BY patente")->fetchAll();
+}
 $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM choferes WHERE estado='activo' ORDER BY apellido, nombre")->fetchAll();
 ?>
 
@@ -93,7 +157,7 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
 <div>
 <h2 class="font-headline-lg text-headline-lg text-primary">Gestion de Combustible</h2>
-<p class="font-body-md text-body-md text-on-surface-variant">Control de cargas y consumo.</p>
+<p class="font-body-md text-body-md text-on-surface-variant">Control de cargas y consumo.<?php if ($esRestringido): ?> <span class="bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded text-[10px] font-bold uppercase ml-2">Solo mis cargas</span><?php endif; ?></p>
 </div>
 <button onclick="resetModal(); openModal('modalCombustible')" class="bg-primary text-on-primary px-6 py-3 rounded-lg font-bold flex items-center gap-2 hover:opacity-90 transition-opacity">
 <span class="material-symbols-outlined">add</span> Nueva Carga
@@ -123,13 +187,50 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 </div>
 </div>
 
-<!-- Search -->
-<div class="bg-surface-container-lowest border border-outline-variant p-4 rounded-xl flex items-center gap-4 mb-8">
-<div class="relative w-full">
-<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
-<input onkeyup="filterTable()" id="searchInput" class="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary" placeholder="Buscar por patente, chofer o estacion..." type="text"/>
+<!-- Filtros -->
+<form method="GET" class="bg-surface-container-lowest border border-outline-variant p-4 rounded-xl mb-8">
+<div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px]">Buscar</label>
+<input name="buscar" type="text" value="<?= htmlspecialchars($buscar) ?>" class="w-full border border-outline-variant rounded p-2 bg-surface-container-low text-sm" placeholder="Patente, chofer, estacion..."/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px]">Chofer</label>
+<?php if ($esRestringido): ?>
+<input type="text" disabled value="Solo mis cargas" class="w-full border border-outline-variant rounded p-2 bg-surface-container-high text-sm text-on-surface-variant"/>
+<input name="id_chofer" type="hidden" value="<?= $idChoferRestriccion ?>"/>
+<?php else: ?>
+<select name="id_chofer" class="w-full border border-outline-variant rounded p-2 bg-surface-container-low text-sm">
+<option value="">Todos</option>
+<?php foreach ($choferesList as $ch): ?>
+<option value="<?= $ch['id_chofer'] ?>" <?= $filtroChofer == $ch['id_chofer'] ? 'selected' : '' ?>><?= htmlspecialchars($ch['apellido'] . ', ' . $ch['nombre']) ?></option>
+<?php endforeach; ?>
+</select>
+<?php endif; ?>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px]">Camion</label>
+<select name="id_camion" class="w-full border border-outline-variant rounded p-2 bg-surface-container-low text-sm">
+<option value="">Todos</option>
+<?php foreach ($camionesList as $ca): ?>
+<option value="<?= $ca['id_camion'] ?>" <?= $filtroCamion == $ca['id_camion'] ? 'selected' : '' ?>><?= htmlspecialchars($ca['patente'] . ' - ' . $ca['marca'] . ' ' . $ca['modelo']) ?></option>
+<?php endforeach; ?>
+</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px]">Fecha Desde</label>
+<input name="fecha_desde" type="date" value="<?= htmlspecialchars($fechaDesde) ?>" class="w-full border border-outline-variant rounded p-2 bg-surface-container-low text-sm"/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px]">Fecha Hasta</label>
+<input name="fecha_hasta" type="date" value="<?= htmlspecialchars($fechaHasta) ?>" class="w-full border border-outline-variant rounded p-2 bg-surface-container-low text-sm"/>
+</div>
+<div class="flex gap-2">
+<button type="submit" class="w-full bg-primary text-on-primary px-4 py-2 rounded-lg font-bold text-sm hover:opacity-90">Filtrar</button>
+<a href="<?= BASE_URL ?>/admin/combustible.php" class="w-full px-4 py-2 border border-outline text-primary rounded-lg text-sm font-bold hover:bg-surface-container-low text-center">Limpiar</a>
 </div>
 </div>
+</form>
 
 <!-- Table -->
 <div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap">
@@ -190,12 +291,17 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 <div class="grid grid-cols-2 gap-4">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Chofer</label>
+<?php if ($esRestringido && $idChoferRestriccion): ?>
+<input type="text" disabled value="<?= htmlspecialchars($choferesList[array_search($idChoferRestriccion, array_column($choferesList, 'id_chofer'))]['apellido'] ?? '') ?>, <?= htmlspecialchars($choferesList[array_search($idChoferRestriccion, array_column($choferesList, 'id_chofer'))]['nombre'] ?? 'Carga personal') ?>" class="w-full border border-outline-variant rounded p-3 bg-surface-container-high text-on-surface-variant"/>
+<input name="id_chofer" type="hidden" value="<?= $idChoferRestriccion ?>"/>
+<?php else: ?>
 <select name="id_chofer" id="combChofer" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required>
 <option value="">Seleccionar...</option>
 <?php foreach ($choferesList as $ch): ?>
 <option value="<?= $ch['id_chofer'] ?>"><?= htmlspecialchars($ch['apellido'] . ', ' . $ch['nombre'] . ' - ' . $ch['dni']) ?></option>
 <?php endforeach; ?>
 </select>
+<?php endif; ?>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Camion</label>
@@ -339,7 +445,7 @@ return;
 }
 document.getElementById('combAction').value = 'update';
 document.getElementById('combId').value = data.id_combustible;
-document.getElementById('combChofer').value = data.id_chofer;
+var elChofer = document.getElementById('combChofer'); if (elChofer) elChofer.value = data.id_chofer;
 document.getElementById('combCamion').value = data.id_camion;
 document.getElementById('combFecha').value = data.fecha.replace(' ', 'T');
 document.getElementById('combEstacion').value = data.estacion_servicio;
@@ -364,9 +470,7 @@ form.submit();
 });
 }
 
-document.getElementById('modalCombustible').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalCombustible');
-});
+
 
 const litrosInput = document.getElementById('modLitros');
 const precioInput = document.getElementById('modPrecio');
@@ -379,12 +483,7 @@ totalDisplay.innerText = '$ ' + (l * p).toLocaleString('es-ES', { minimumFractio
 litrosInput.addEventListener('input', calcTotal);
 precioInput.addEventListener('input', calcTotal);
 
-function filterTable() {
-const search = document.getElementById('searchInput').value.toLowerCase();
-document.querySelectorAll('#tableBody tr').forEach(row => {
-row.style.display = row.textContent.toLowerCase().includes(search) ? '' : 'none';
-});
-}
+
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

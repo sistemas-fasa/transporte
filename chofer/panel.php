@@ -9,6 +9,23 @@ $db = getDB();
 $userId = getCurrentUserId();
 $idChofer = getChoferIdFromUser();
 
+// Si el usuario no tiene id_chofer vinculado, buscarlo en choferes por usuario_id
+if (!$idChofer && $userId) {
+    try {
+        $stmtCh = $db->prepare("SELECT id_chofer FROM choferes WHERE usuario_id = ? LIMIT 1");
+        $stmtCh->execute([$userId]);
+        $idChofer = $stmtCh->fetchColumn() ?: null;
+    } catch (Exception $e) {}
+}
+// Si aun no hay id_chofer, buscarlo via vehiculos asignados
+if (!$idChofer && $userId) {
+    try {
+        $stmtVh = $db->prepare("SELECT a.id_chofer FROM vehiculos_usuarios vu JOIN asignaciones a ON vu.vehiculo_id = a.id_camion AND a.activa = 1 WHERE vu.usuario_id = ? LIMIT 1");
+        $stmtVh->execute([$userId]);
+        $idChofer = $stmtVh->fetchColumn() ?: null;
+    } catch (Exception $e) {}
+}
+
 // Verificar si la columna usuario_id existe en km_recorrido
 $hasUsuarioId = false;
 try {
@@ -62,8 +79,9 @@ $anio = date('Y');
 // KM recorridos (solo autorizados)
 $kmSql = "SELECT COALESCE(SUM(km_recorridos),0) as total FROM km_recorrido WHERE MONTH(fecha) = ? AND YEAR(fecha) = ? AND estado = 'aprobado'";
 $kmParams = [$mes, $anio];
-if ($userId && $hasUsuarioId) { $kmSql .= " AND usuario_id = ?"; $kmParams[] = $userId; }
-elseif ($idChofer) { $kmSql .= " AND id_chofer = ?"; $kmParams[] = $idChofer; }
+if ($idChofer) { $kmSql .= " AND id_chofer = ?"; $kmParams[] = $idChofer; }
+elseif ($hasUsuarioId) { $kmSql .= " AND usuario_id = ?"; $kmParams[] = $userId; }
+else { $kmSql .= " AND 1=0"; }
 $kmMes = $db->prepare($kmSql);
 $kmMes->execute($kmParams);
 $kmData = $kmMes->fetch();
@@ -71,8 +89,9 @@ $kmData = $kmMes->fetch();
 // Combustible
 $combSql = "SELECT COALESCE(SUM(litros),0) as litros, COALESCE(SUM(litros * precio_litro),0) as total FROM combustible WHERE MONTH(fecha) = ? AND YEAR(fecha) = ?";
 $combParams = [$mes, $anio];
-if ($userId) { $combSql .= " AND id_usuario_registra = ?"; $combParams[] = $userId; }
-elseif ($idChofer) { $combSql .= " AND id_chofer = ?"; $combParams[] = $idChofer; }
+if ($idChofer) { $combSql .= " AND id_chofer = ?"; $combParams[] = $idChofer; }
+elseif ($userId) { $combSql .= " AND id_usuario_registra = ?"; $combParams[] = $userId; }
+else { $combSql .= " AND 1=0"; }
 $combMes = $db->prepare($combSql);
 $combMes->execute($combParams);
 $combData = $combMes->fetch();
@@ -82,8 +101,9 @@ $mesAnt = $mes == 1 ? 12 : $mes - 1;
 $anioAnt = $mes == 1 ? $anio - 1 : $anio;
 $kmAntParams = [$mesAnt, $anioAnt];
 $kmAntSql = "SELECT COALESCE(SUM(km_recorridos),0) as total FROM km_recorrido WHERE MONTH(fecha) = ? AND YEAR(fecha) = ? AND estado = 'aprobado'";
-if ($userId && $hasUsuarioId) { $kmAntSql .= " AND usuario_id = ?"; $kmAntParams[] = $userId; }
-elseif ($idChofer) { $kmAntSql .= " AND id_chofer = ?"; $kmAntParams[] = $idChofer; }
+if ($idChofer) { $kmAntSql .= " AND id_chofer = ?"; $kmAntParams[] = $idChofer; }
+elseif ($hasUsuarioId) { $kmAntSql .= " AND usuario_id = ?"; $kmAntParams[] = $userId; }
+else { $kmAntSql .= " AND 1=0"; }
 $kmAnt = $db->prepare($kmAntSql);
 $kmAnt->execute($kmAntParams);
 $kmAntData = $kmAnt->fetch();
@@ -97,8 +117,9 @@ $ultimasCargas = [];
 try {
     $cargasSql = "SELECT co.fecha, co.litros, co.precio_litro, c.patente FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion WHERE ";
     $cargasParams = [];
-    if ($userId) { $cargasSql .= "co.id_usuario_registra = ?"; $cargasParams[] = $userId; }
-    elseif ($idChofer) { $cargasSql .= "co.id_chofer = ?"; $cargasParams[] = $idChofer; }
+    if ($idChofer) { $cargasSql .= "co.id_chofer = ?"; $cargasParams[] = $idChofer; }
+    elseif ($userId) { $cargasSql .= "co.id_usuario_registra = ?"; $cargasParams[] = $userId; }
+    else { $cargasSql .= "1=0"; }
     $cargasSql .= " ORDER BY co.fecha DESC LIMIT 5";
     $stmtCargas = $db->prepare($cargasSql);
     $stmtCargas->execute($cargasParams);
@@ -108,8 +129,9 @@ try {
 // KM sin autorizar (estado = 'cerrado', no aprobado)
 $kmSinAutSql = "SELECT COALESCE(SUM(km_recorridos),0) as total FROM km_recorrido WHERE MONTH(fecha) = ? AND YEAR(fecha) = ? AND estado = 'cerrado'";
 $kmSinAutParams = [$mes, $anio];
-if ($userId && $hasUsuarioId) { $kmSinAutSql .= " AND usuario_id = ?"; $kmSinAutParams[] = $userId; }
-elseif ($idChofer) { $kmSinAutSql .= " AND id_chofer = ?"; $kmSinAutParams[] = $idChofer; }
+if ($idChofer) { $kmSinAutSql .= " AND id_chofer = ?"; $kmSinAutParams[] = $idChofer; }
+elseif ($hasUsuarioId) { $kmSinAutSql .= " AND usuario_id = ?"; $kmSinAutParams[] = $userId; }
+else { $kmSinAutSql .= " AND 1=0"; }
 $kmSinAut = $db->prepare($kmSinAutSql);
 $kmSinAut->execute($kmSinAutParams);
 $kmSinAutData = $kmSinAut->fetch();

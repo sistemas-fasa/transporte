@@ -28,10 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 try {
                     // Mapear el rol legacy segun el nuevo sistema de roles
-                    $legacyRol = 'chofer';
-                    if ($id_rol == 1 || $id_rol == 2) {
-                        $legacyRol = 'admin';
-                    }
+                    $legacyRol = ($id_rol == 1) ? 'admin' : '';
                     $hash = password_hash($password, PASSWORD_DEFAULT);
                     $stmt = $db->prepare("INSERT INTO usuarios (username, nombre, apellido, password, email, telefono, rol, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$username, $nombre, $apellido, $hash, $email, $telefono, $legacyRol, $activo]);
@@ -62,6 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 // Actualizar rol
+                $legacyRol = ($id_rol == 1) ? 'admin' : '';
+                $db->prepare("UPDATE usuarios SET rol = ? WHERE id_usuario = ?")->execute([$legacyRol, $id]);
                 $db->prepare("DELETE FROM usuario_rol WHERE id_usuario = ?")->execute([$id]);
                 if ($id_rol) {
                     $db->prepare("INSERT INTO usuario_rol (id_usuario, id_rol) VALUES (?, ?)")->execute([$id, $id_rol]);
@@ -150,6 +149,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Error al desasociar chofer: ' . $e->getMessage();
             }
         }
+    } elseif ($action === 'eliminar') {
+        $id = (int)($_POST['id_usuario'] ?? 0);
+        try {
+            $db->prepare("DELETE FROM usuarios WHERE id_usuario = ?")->execute([$id]);
+            registrarAuditoria(getCurrentUserId(), 'delete', 'usuarios', $id, "Elimino usuario ID $id");
+            $mensaje = 'Usuario eliminado permanentemente';
+        } catch (Exception $e) {
+            $error = 'Error al eliminar: ' . $e->getMessage();
+        }
     } elseif ($action === 'reset_password') {
         $id = (int)($_POST['id_usuario'] ?? 0);
         $nueva_pass = trim($_POST['nueva_password'] ?? '');
@@ -229,24 +237,24 @@ foreach ($stmtV->fetchAll() as $v) {
 <table class="w-full">
 <thead class="bg-surface-container-high/50">
 <tr>
-<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-left">ID</th>
-<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-left">USUARIO</th>
-<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-left hidden md:table-cell">NOMBRE</th>
-<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-center hidden lg:table-cell">ROL</th>
-<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-center">EST</th>
-<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-left hidden xl:table-cell">CHOFER</th>
-<th class="px-1.5 md:px-2 py-2 font-label-caps text-[9px] text-on-surface-variant text-center">ACC</th>
+<th class="px-2 md:px-3 py-3 font-label-caps text-[12px] text-on-surface-variant text-left">ID</th>
+<th class="px-2 md:px-3 py-3 font-label-caps text-[12px] text-on-surface-variant text-left">USUARIO</th>
+<th class="px-2 md:px-3 py-3 font-label-caps text-[12px] text-on-surface-variant text-left hidden md:table-cell">NOMBRE</th>
+<th class="px-2 md:px-3 py-3 font-label-caps text-[12px] text-on-surface-variant text-center hidden lg:table-cell">ROL</th>
+<th class="px-2 md:px-3 py-3 font-label-caps text-[12px] text-on-surface-variant text-center">EST</th>
+<th class="px-2 md:px-3 py-3 font-label-caps text-[12px] text-on-surface-variant text-left hidden xl:table-cell">CHOFER</th>
+<th class="px-2 md:px-3 py-3 font-label-caps text-[12px] text-on-surface-variant text-center">ACC</th>
 </tr>
 </thead>
 <tbody class="divide-y divide-outline-variant" id="usuariosTableBody">
 <?php foreach ($usuariosList as $u): ?>
 <tr class="usuario-row hover:bg-surface-container transition-colors" data-search="<?= strtolower(htmlspecialchars($u['username'] . ' ' . $u['nombre'] . ' ' . $u['apellido'] . ' ' . $u['email'])) ?>">
-<td class="px-1.5 md:px-2 py-2 font-data-mono font-bold text-primary text-[11px]">#<?= $u['id_usuario'] ?></td>
-<td class="px-1.5 md:px-2 py-2">
-<span class="font-medium text-[11px]"><?= htmlspecialchars($u['username']) ?></span>
+<td class="px-2 md:px-3 py-3 font-data-mono font-bold text-primary text-[13px]">#<?= $u['id_usuario'] ?></td>
+<td class="px-2 md:px-3 py-3">
+<span class="font-medium text-[13px]"><?= htmlspecialchars($u['username']) ?></span>
 </td>
-<td class="px-1.5 md:px-2 py-2 hidden md:table-cell text-[11px]"><?= htmlspecialchars(trim(($u['nombre'] ?? '') . ' ' . ($u['apellido'] ?? ''))) ?: '-' ?></td>
-<td class="px-1.5 md:px-2 py-2 text-center hidden lg:table-cell">
+<td class="px-2 md:px-3 py-3 hidden md:table-cell text-[13px]"><?= htmlspecialchars(trim(($u['nombre'] ?? '') . ' ' . ($u['apellido'] ?? ''))) ?: '-' ?></td>
+<td class="px-2 md:px-3 py-3 text-center hidden lg:table-cell">
 <?php
 $rolesStr = $u['roles_nombre'] ?? '';
 $rolClass = '';
@@ -254,26 +262,26 @@ if (strpos($rolesStr, 'Administrador') !== false) $rolClass = 'bg-purple-100 tex
 elseif (strpos($rolesStr, 'Supervisor') !== false) $rolClass = 'bg-blue-100 text-blue-800 border-blue-200';
 else $rolClass = 'bg-green-100 text-green-800 border-green-200';
 ?>
-<span class="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase border <?= $rolClass ?>"><?= htmlspecialchars($rolesStr ?: '-') ?></span>
+<span class="px-2 py-1 rounded-full text-[11px] font-bold uppercase border <?= $rolClass ?>"><?= htmlspecialchars($rolesStr ?: '-') ?></span>
 </td>
-<td class="px-1.5 md:px-2 py-2 text-center">
-<span class="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase <?= $u['activo'] ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200' ?>"><?= $u['activo'] ? 'S' : 'N' ?></span>
+<td class="px-2 md:px-3 py-3 text-center">
+<span class="px-2 py-1 rounded-full text-[11px] font-bold uppercase <?= $u['activo'] ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200' ?>"><?= $u['activo'] ? 'S' : 'N' ?></span>
 </td>
-<td class="px-1.5 md:px-2 py-2 hidden xl:table-cell">
+<td class="px-2 md:px-3 py-3 hidden xl:table-cell">
 <?php if ($u['chofer_asociado']): ?>
 <div class="flex items-center gap-1">
-<span class="text-[10px]"><?= htmlspecialchars($u['chofer_asociado']) ?></span>
+<span class="text-[13px]"><?= htmlspecialchars($u['chofer_asociado']) ?></span>
 <form method="POST" class="inline" onsubmit="return confirm('¿Desasociar chofer?')">
 <input type="hidden" name="action" value="desasociar_chofer"/>
 <input type="hidden" name="id_usuario" value="<?= $u['id_usuario'] ?>"/>
-<button type="submit" class="text-red-500 hover:text-red-700 text-[10px]" title="Desasociar chofer">&times;</button>
+<button type="submit" class="text-red-500 hover:text-red-700 text-[13px]" title="Desasociar chofer">&times;</button>
 </form>
 </div>
 <?php else: ?>
-<button onclick="openAsociarChofer(<?= $u['id_usuario'] ?>)" class="text-[10px] text-primary underline hover:opacity-80">+</button>
+<button onclick="openAsociarChofer(<?= $u['id_usuario'] ?>)" class="text-[13px] text-primary underline hover:opacity-80">+</button>
 <?php endif; ?>
 </td>
-<td class="px-1.5 md:px-2 py-2">
+<td class="px-2 md:px-3 py-3">
 <div class="flex gap-0.5 justify-center flex-nowrap">
 <?php if (hasPermission('usuarios_editar')): ?>
 <button onclick="editUsuario(<?= $u['id_usuario'] ?>)" class="p-1 bg-secondary-container text-on-secondary-container rounded hover:opacity-80" title="Editar">
@@ -286,15 +294,20 @@ else $rolClass = 'bg-green-100 text-green-800 border-green-200';
 <button onclick="openAsignarVehiculo(<?= $u['id_usuario'] ?>)" class="p-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100" title="Asignar vehículo">
 <span class="material-symbols-outlined text-[14px]">directions_car</span>
 </button>
-<?php if ($u['activo']): ?>
-<button onclick="toggleEstado(<?= $u['id_usuario'] ?>, 'desactivar')" class="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100" title="Desactivar">
-<span class="material-symbols-outlined text-[14px]">block</span>
-</button>
-<?php else: ?>
-<button onclick="toggleEstado(<?= $u['id_usuario'] ?>, 'activar')" class="p-1 bg-green-50 text-green-600 rounded hover:bg-green-100" title="Activar">
-<span class="material-symbols-outlined text-[14px]">check_circle</span>
-</button>
-<?php endif; ?>
+            <?php if (hasPermission('usuarios_eliminar')): ?>
+            <button onclick="eliminarUsuario(<?= $u['id_usuario'] ?>)" class="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100" title="Eliminar">
+                <span class="material-symbols-outlined text-[14px]">delete</span>
+            </button>
+            <?php endif; ?>
+            <?php if ($u['activo']): ?>
+            <button onclick="toggleEstado(<?= $u['id_usuario'] ?>, 'desactivar')" class="p-1 bg-orange-50 text-orange-600 rounded hover:bg-orange-100" title="Desactivar">
+                <span class="material-symbols-outlined text-[14px]">block</span>
+            </button>
+            <?php else: ?>
+            <button onclick="toggleEstado(<?= $u['id_usuario'] ?>, 'activar')" class="p-1 bg-green-50 text-green-600 rounded hover:bg-green-100" title="Activar">
+                <span class="material-symbols-outlined text-[14px]">check_circle</span>
+            </button>
+            <?php endif; ?>
 </div>
 </td>
 </tr>
@@ -545,6 +558,26 @@ form.submit();
 });
 }
 
+function eliminarUsuario(id) {
+    if (typeof showConfirm === 'function') {
+        showConfirm('¿Eliminar este usuario permanentemente? Esta accion no se puede deshacer.', function() {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.innerHTML = '<input name="action" value="eliminar"><input name="id_usuario" value="' + id + '">';
+            document.body.appendChild(form);
+            form.submit();
+        });
+    } else {
+        if (confirm('¿Eliminar este usuario permanentemente? Esta accion no se puede deshacer.')) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.innerHTML = '<input name="action" value="eliminar"><input name="id_usuario" value="' + id + '">';
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+}
+
 function toggleEstado(id, accion) {
 const msg = accion === 'desactivar' ? '¿Desactivar este usuario?' : '¿Activar este usuario?';
 showConfirm(msg, function() {
@@ -563,18 +596,7 @@ row.style.display = row.dataset.search.includes(search) ? '' : 'none';
 });
 }
 
-document.getElementById('modalUsuario').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalUsuario');
-});
-document.getElementById('modalResetPass').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalResetPass');
-});
-document.getElementById('modalAsignarVehiculo').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalAsignarVehiculo');
-});
-document.getElementById('modalAsociarChofer').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalAsociarChofer');
-});
+
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

@@ -16,6 +16,8 @@ try { $db->exec("ALTER TABLE km_recorrido MODIFY km_llegada DECIMAL(12,2) DEFAUL
 try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN estado ENUM('abierto','cerrado','aprobado') DEFAULT 'abierto' AFTER observaciones"); } catch (Exception $e) {}
 try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN aprobado_por INT DEFAULT NULL AFTER estado"); } catch (Exception $e) {}
 try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN fecha_cierre DATETIME DEFAULT NULL AFTER aprobado_por"); } catch (Exception $e) {}
+try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN cachape_id INT DEFAULT NULL AFTER peso_carga"); } catch (Exception $e) {}
+try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN peso_total DECIMAL(12,2) DEFAULT NULL AFTER cachape_id"); } catch (Exception $e) {}
 
 // Verificar si la columna usuario_id existe en km_recorrido
 $hasUsuarioId = false;
@@ -52,6 +54,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $destino = trim($_POST['destino'] ?? '');
     if ($destino === '__OTRO__') { $destino = trim($_POST['destino_otro'] ?? ''); $db->prepare("INSERT IGNORE INTO localidad (localidad) VALUES (?)")->execute([$destino]); }
     $observaciones = trim($_POST['observaciones'] ?? '');
+    $nro_hoja_ruta = trim($_POST['nro_hoja_ruta'] ?? '');
+    $tara = $_POST['tara'] !== '' ? (float)$_POST['tara'] : null;
+    $peso_carga = $_POST['peso_carga'] !== '' ? (float)$_POST['peso_carga'] : null;
+    $peso_total = $_POST['peso_total'] !== '' ? (float)$_POST['peso_total'] : null;
 
     $km_llegada_val = $_POST['km_llegada'] !== '' ? (float)$_POST['km_llegada'] : null;
     $estado = ($km_salida > 0 && $km_llegada_val !== null) ? 'cerrado' : 'abierto';
@@ -60,12 +66,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $error = 'No se pudo identificar el chofer. Verifique que el usuario este vinculado a un chofer.';
     } else {
         try {
+            $cachape_id = $_POST['cachape_id'] !== '' ? (int)$_POST['cachape_id'] : null;
             if ($hasUsuarioId) {
-                $stmt = $db->prepare("INSERT INTO km_recorrido (fecha, id_chofer, id_camion, km_salida, km_llegada, origen, destino, observaciones, usuario_id, estado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$fecha, $idChofer, $id_camion, $km_salida, $km_llegada_val, $origen, $destino, $observaciones, $userId, $estado]);
+                $stmt = $db->prepare("INSERT INTO km_recorrido (fecha, id_chofer, id_camion, km_salida, km_llegada, origen, destino, observaciones, usuario_id, estado, nro_hoja_ruta, tara, peso_carga, cachape_id, peso_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$fecha, $idChofer, $id_camion, $km_salida, $km_llegada_val, $origen, $destino, $observaciones, $userId, $estado, $nro_hoja_ruta ?: null, $tara, $peso_carga, $cachape_id, $peso_total]);
             } else {
-                $stmt = $db->prepare("INSERT INTO km_recorrido (fecha, id_chofer, id_camion, km_salida, km_llegada, origen, destino, observaciones, estado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$fecha, $idChofer, $id_camion, $km_salida, $km_llegada_val, $origen, $destino, $observaciones, $estado]);
+                $stmt = $db->prepare("INSERT INTO km_recorrido (fecha, id_chofer, id_camion, km_salida, km_llegada, origen, destino, observaciones, estado, nro_hoja_ruta, tara, peso_carga, cachape_id, peso_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$fecha, $idChofer, $id_camion, $km_salida, $km_llegada_val, $origen, $destino, $observaciones, $estado, $nro_hoja_ruta ?: null, $tara, $peso_carga, $cachape_id, $peso_total]);
             }
             $_SESSION['flash'] = 'Viaje registrado exitosamente';
             header('Location: viajes.php');
@@ -86,10 +93,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $destino = trim($_POST['destino'] ?? '');
     if ($destino === '__OTRO__') { $destino = trim($_POST['destino_otro'] ?? ''); $db->prepare("INSERT IGNORE INTO localidad (localidad) VALUES (?)")->execute([$destino]); }
     $observaciones = trim($_POST['observaciones'] ?? '');
+    $nro_hoja_ruta = trim($_POST['nro_hoja_ruta'] ?? '');
+    $tara = $_POST['tara'] !== '' ? (float)$_POST['tara'] : null;
+    $peso_carga = $_POST['peso_carga'] !== '' ? (float)$_POST['peso_carga'] : null;
+    $cachape_id = $_POST['cachape_id'] !== '' ? (int)$_POST['cachape_id'] : null;
+    $peso_total = $_POST['peso_total'] !== '' ? (float)$_POST['peso_total'] : null;
     $estado = ($km_salida > 0 && $km_llegada_val !== null) ? 'cerrado' : 'abierto';
     try {
-        $stmt = $db->prepare("UPDATE km_recorrido SET km_salida=?, km_llegada=?, origen=?, destino=?, observaciones=?, estado=?, fecha_cierre=" . ($km_llegada_val !== null ? 'NOW()' : 'NULL') . " WHERE id_hoja=? AND estado='abierto'");
-        $stmt->execute([$km_salida, $km_llegada_val, $origen, $destino, $observaciones, $estado, $id_hoja]);
+        $stmt = $db->prepare("UPDATE km_recorrido SET km_salida=?, km_llegada=?, origen=?, destino=?, observaciones=?, estado=?, nro_hoja_ruta=?, tara=?, peso_carga=?, cachape_id=?, peso_total=?, fecha_cierre=" . ($km_llegada_val !== null ? 'NOW()' : 'NULL') . " WHERE id_hoja=? AND estado='abierto'");
+        $stmt->execute([$km_salida, $km_llegada_val, $origen, $destino, $observaciones, $estado, $nro_hoja_ruta ?: null, $tara, $peso_carga, $cachape_id, $peso_total, $id_hoja]);
         if ($stmt->rowCount() === 0) {
             $error = 'El viaje no esta abierto o no existe.';
         } else {
@@ -113,12 +125,13 @@ if ($countLoc['c'] == 0) {
     foreach ($localidades as $l) { $ins->execute([$l]); }
 }
 $localidadesList = $db->query("SELECT id_localidad, localidad FROM localidad ORDER BY localidad ASC")->fetchAll();
+$cachapesList = $db->query("SELECT id_camion, patente, marca, modelo, tara FROM camiones WHERE estado='activo' AND tipo='cachape' ORDER BY patente")->fetchAll();
 // Solo camiones asignados al chofer (de ambas fuentes)
 $camionesList = [];
 $vistos = [];
 if ($idChofer) {
     try {
-        $stmtCam = $db->prepare("SELECT c.id_camion, c.patente, c.marca, c.modelo FROM asignaciones a JOIN camiones c ON a.id_camion = c.id_camion WHERE a.id_chofer = ? AND a.activa = 1");
+        $stmtCam = $db->prepare("SELECT c.id_camion, c.patente, c.marca, c.modelo, c.tara FROM asignaciones a JOIN camiones c ON a.id_camion = c.id_camion WHERE a.id_chofer = ? AND a.activa = 1");
         $stmtCam->execute([$idChofer]);
         foreach ($stmtCam->fetchAll() as $row) {
             $vistos[$row['id_camion']] = true;
@@ -128,7 +141,7 @@ if ($idChofer) {
 }
 if ($userId) {
     try {
-        $stmtCam2 = $db->prepare("SELECT c.id_camion, c.patente, c.marca, c.modelo FROM vehiculos_usuarios vu JOIN camiones c ON vu.vehiculo_id = c.id_camion WHERE vu.usuario_id = ?");
+        $stmtCam2 = $db->prepare("SELECT c.id_camion, c.patente, c.marca, c.modelo, c.tara FROM vehiculos_usuarios vu JOIN camiones c ON vu.vehiculo_id = c.id_camion WHERE vu.usuario_id = ?");
         $stmtCam2->execute([$userId]);
         foreach ($stmtCam2->fetchAll() as $row) {
             if (!isset($vistos[$row['id_camion']])) {
@@ -187,17 +200,15 @@ if ($idChofer) {
 <?php if ($mensaje): ?><div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($mensaje) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 
-<div class="grid grid-cols-<?= $kmHabilitado ? '2' : '1' ?> gap-4 mb-8">
+<div class="grid grid-cols-2 gap-4 mb-8">
 <div class="bg-surface-container-lowest border border-outline-variant p-4">
 <span class="font-label-caps text-label-caps text-on-surface-variant uppercase">Viajes del Mes</span>
 <div class="font-headline-md text-headline-md text-primary mt-1"><?= $statsData['total'] ?></div>
 </div>
-<?php if ($kmHabilitado): ?>
 <div class="bg-surface-container-lowest border border-outline-variant p-4">
 <span class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM del Mes</span>
 <div class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($statsData['km_total'], 0) ?> km</div>
 </div>
-<?php endif; ?>
 </div>
 
 <!-- Desktop table -->
@@ -310,26 +321,57 @@ else $badge = 'bg-amber-100 text-amber-800';
 <div class="grid grid-cols-2 gap-4">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Camion</label>
-<select name="id_camion" id="viajeCamion" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required>
+<select name="id_camion" id="viajeCamion" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required onchange="calcTaraTotalCh()">
 <option value="">Seleccionar...</option>
 <?php foreach ($camionesList as $c): ?>
-<option value="<?= $c['id_camion'] ?>" data-ultimo-km="<?= $ultimoKmPorCamion[$c['id_camion']] ?? '' ?>"><?= htmlspecialchars($c['patente'] . ' - ' . $c['marca'] . ' ' . $c['modelo']) ?></option>
+<option value="<?= $c['id_camion'] ?>" data-ultimo-km="<?= $ultimoKmPorCamion[$c['id_camion']] ?? '' ?>" data-tara="<?= $c['tara'] ?? 0 ?>"><?= htmlspecialchars($c['patente'] . ' - ' . $c['marca'] . ' ' . $c['modelo']) ?></option>
 <?php endforeach; ?>
 </select>
 </div>
 <div class="flex flex-col gap-1">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Fecha</label>
-<input type="date" name="fecha" id="viajeFecha" value="<?= date('Y-m-d') ?>" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Cachapé (opcional)</label>
+<select name="cachape_id" id="viajeCachape" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" onchange="calcTaraTotalCh()">
+<option value="">Sin cachapé</option>
+<?php foreach ($cachapesList as $ca): ?>
+<option value="<?= $ca['id_camion'] ?>" data-tara="<?= $ca['tara'] ?>"><?= htmlspecialchars($ca['patente'] . ' - ' . $ca['marca'] . ' ' . $ca['modelo'] . ($ca['tara'] ? ' (Tara: ' . $ca['tara'] . 'kg)' : '')) ?></option>
+<?php endforeach; ?>
+</select>
 </div>
 </div>
 <div class="grid grid-cols-2 gap-4">
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Fecha</label>
+<input type="date" name="fecha" id="viajeFecha" value="<?= date('Y-m-d') ?>" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
+</div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Salida</label>
 <input type="number" step="0.1" name="km_salida" id="viajeKmSalida" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Llegada <span class="text-on-surface-variant text-[10px]">(opcional, dejar vacio si el viaje continua)</span></label>
-<input type="number" step="0.1" name="km_llegada" id="viajeKmLlegada" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+<input type="number" step="0.1" name="km_llegada" id="viajeKmLlegada" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" oninput="calcKmRec()"/>
+</div>
+</div>
+<div class="bg-surface-container-high p-3 rounded-lg flex justify-between items-center">
+<span class="font-label-caps text-label-caps uppercase font-bold">KM Recorridos</span>
+<span class="font-headline-md text-headline-md text-primary font-bold font-data-mono" id="viajeKmRec">0 km</span>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Nro. Hoja de Ruta</label>
+<input name="nro_hoja_ruta" id="viajeNroHoja" type="text" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Ej: 1234"/>
+</div>
+<div class="grid grid-cols-3 gap-4">
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Tara (KG)</label>
+<input name="tara" id="viajeTara" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" oninput="calcPesoTotal()"/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Peso Carga (KG)</label>
+<input name="peso_carga" id="viajePesoCarga" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" oninput="calcPesoTotal()"/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Peso Total (KG)</label>
+<input name="peso_total" id="viajePesoTotal" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low bg-surface-container-high font-bold" readonly/>
 </div>
 </div>
 <div class="grid grid-cols-2 gap-4">
@@ -372,12 +414,41 @@ var editandoId = null;
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
+function calcTaraTotalCh() {
+var camionSel = document.getElementById('viajeCamion');
+var camionOpt = camionSel.options[camionSel.selectedIndex];
+var camionTara = parseFloat(camionOpt.getAttribute('data-tara')) || 0;
+var cachapeSel = document.getElementById('viajeCachape');
+var cachapeOpt = cachapeSel.options[cachapeSel.selectedIndex];
+var cachapeTara = parseFloat(cachapeOpt.getAttribute('data-tara')) || 0;
+var total = camionTara + cachapeTara;
+document.getElementById('viajeTara').value = total > 0 ? total : '';
+calcPesoTotal();
+}
+function calcPesoTotal() {
+var tara = parseFloat(document.getElementById('viajeTara').value) || 0;
+var peso = parseFloat(document.getElementById('viajePesoCarga').value) || 0;
+document.getElementById('viajePesoTotal').value = (tara + peso).toFixed(2);
+}
+
+function calcKmRec() {
+    const s = parseFloat(document.getElementById('viajeKmSalida').value) || 0;
+    const l = parseFloat(document.getElementById('viajeKmLlegada').value) || 0;
+    document.getElementById('viajeKmRec').innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' km';
+}
+
 function resetModal() {
     editandoId = null;
     document.getElementById('viajeAction').value = 'create';
     document.getElementById('viajeId').value = '';
+    document.getElementById('viajeNroHoja').value = '';
     document.getElementById('viajeKmSalida').value = '';
     document.getElementById('viajeKmLlegada').value = '';
+    document.getElementById('viajeCachape').value = '';
+    document.getElementById('viajeTara').value = '';
+    document.getElementById('viajePesoCarga').value = '';
+    document.getElementById('viajePesoTotal').value = '';
+    document.getElementById('viajeKmRec').innerText = '0 km';
     document.getElementById('viajeFecha').value = new Date().toISOString().split('T')[0];
     var origSel = document.getElementById('origenSelect');
     origSel.value = 'PUERTO RICO';
@@ -404,10 +475,16 @@ function editarViaje(id) {
         editandoId = id;
         document.getElementById('viajeAction').value = 'update';
         document.getElementById('viajeId').value = data.id_hoja;
+        document.getElementById('viajeNroHoja').value = data.nro_hoja_ruta || '';
         document.getElementById('viajeCamion').value = data.id_camion;
         document.getElementById('viajeFecha').value = data.fecha;
         document.getElementById('viajeKmSalida').value = data.km_salida;
         document.getElementById('viajeKmLlegada').value = data.km_llegada || '';
+        document.getElementById('viajeCachape').value = data.cachape_id || '';
+        document.getElementById('viajeTara').value = data.tara || '';
+        document.getElementById('viajePesoCarga').value = data.peso_carga || '';
+        document.getElementById('viajePesoTotal').value = data.peso_total || '';
+        calcKmRec();
         var origSel = document.getElementById('origenSelect');
         origSel.value = data.origen || '';
         document.getElementById('origenOtro').value = '';
@@ -432,13 +509,17 @@ function editarViaje(id) {
 document.addEventListener('DOMContentLoaded', function() {
     const camionSelect = document.getElementById('viajeCamion');
     const kmSalida = document.getElementById('viajeKmSalida');
+    const kmLlegada = document.getElementById('viajeKmLlegada');
     if (camionSelect && kmSalida) {
         camionSelect.addEventListener('change', function() {
             const opt = this.options[this.selectedIndex];
             const km = opt ? opt.getAttribute('data-ultimo-km') : '';
             if (km && !editandoId) kmSalida.value = km;
+            calcKmRec();
         });
     }
+    if (kmSalida) kmSalida.addEventListener('input', calcKmRec);
+    if (kmLlegada) kmLlegada.addEventListener('input', calcKmRec);
 });
 </script>
 

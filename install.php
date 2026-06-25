@@ -115,7 +115,7 @@ function registrarAuditoria(int \$id_usuario, string \$accion, ?string \$tabla =
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Instalacion - Gestion de Vehiculos</title>
+<title>Instalacion - Control de Combustible y Kilometraje</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link rel="icon" type="image/png" href="/sistema/Logo/Logo_App.png"/>
@@ -132,7 +132,7 @@ body { font-family: 'Inter', sans-serif; background: #f7f9fb; }
 <span class="material-symbols-outlined text-white text-3xl" style="font-family:'Material Symbols Outlined'">local_shipping</span>
 </div>
 <h1 class="text-2xl font-bold text-[#091426]">Instalacion del Sistema</h1>
-<p class="text-gray-500 text-sm mt-1">Gestion de Vehiculos de Camiones</p>
+<p class="text-gray-500 text-sm mt-1">Control de Combustible y Kilometraje</p>
 </div>
 
 <?php if ($success): ?>
@@ -186,7 +186,7 @@ body { font-family: 'Inter', sans-serif; background: #f7f9fb; }
 <?php endif; ?>
 <?php endif; ?>
 
-<p class="text-center text-xs text-gray-400 mt-6">Sistema de Gestion de Vehiculos v1.0</p>
+<p class="text-center text-xs text-gray-400 mt-6">Control de Combustible y Kilometraje v1.0</p>
 </div>
 </body>
 </html>

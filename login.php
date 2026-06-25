@@ -5,6 +5,33 @@ ini_set('log_errors', 1);
 
 $error = '';
 
+function _roleAdminCapable(array $role): bool {
+    if (in_array((int)$role['id_rol'], [1,2,4])) return true;
+    $name = strtolower($role['nombre'] ?? '');
+    return in_array($name, ['administrador', 'supervisor', 'báscula', 'bascula', 'inspector']);
+}
+function _roleChofer(array $role): bool {
+    if ((int)$role['id_rol'] === 3) return true;
+    return strtolower($role['nombre'] ?? '') === 'chofer';
+}
+function loginDefaultPage(): string {
+    if (!empty($_SESSION['id_chofer'])) {
+        return BASE_URL . '/chofer/panel.php';
+    }
+    if (!empty($_SESSION['user_roles'])) {
+        foreach ($_SESSION['user_roles'] as $r) {
+            if (_roleAdminCapable($r)) return BASE_URL . '/admin/dashboard.php';
+        }
+        foreach ($_SESSION['user_roles'] as $r) {
+            if (_roleChofer($r)) return BASE_URL . '/chofer/panel.php';
+        }
+        return BASE_URL . '/chofer/cargar_combustible.php';
+    }
+    if ($_SESSION['user_rol'] === 'admin') return BASE_URL . '/admin/dashboard.php';
+    if ($_SESSION['user_rol'] === 'chofer') return BASE_URL . '/chofer/panel.php';
+    return BASE_URL . '/chofer/cargar_combustible.php';
+}
+
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'c0860365_sistema');
 define('DB_USER', 'c0860365_sistema');
@@ -20,8 +47,8 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // Si ya esta logueado via DB session, redirigir
 if (dbSessionStart()) {
-    $destino = $_SESSION['user_rol'] === 'admin' ? BASE_URL . '/admin/dashboard.php' : BASE_URL . '/chofer/panel.php';
-    header('Location: ' . $destino);
+    require_once __DIR__ . '/includes/auth.php';
+    header('Location: ' . getDefaultPage());
     exit;
 }
 
@@ -50,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE usuarios SET ultimo_acceso = NOW() WHERE id_usuario = ?")->execute([$user['id_usuario']]);
                 dbSessionLogin($user['id_usuario'], $user['rol'], $user['username'], $user['id_chofer']);
                 registrarAcceso($user['id_usuario'], 'inicio_sesion', 'Login', null, "Inicio de sesion exitoso");
-                $destino = $user['rol'] === 'admin' ? BASE_URL . '/admin/dashboard.php' : BASE_URL . '/chofer/panel.php';
+                $destino = loginDefaultPage();
                 header('Location: ' . $destino);
                 exit;
             } else {
@@ -78,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Iniciar Sesion - Gestion de Vehiculos</title>
+<title>Iniciar Sesion - Control de Combustible y Kilometraje</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
@@ -108,7 +135,7 @@ body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8
 <div class="mx-auto mb-4 w-20 h-20 flex items-center justify-center">
 <img src="<?= BASE_URL ?>/Logo/Logo_App.png" alt="Logo" class="max-w-full max-h-full object-contain"/>
 </div>
-<h1 class="text-[28px] font-bold text-[#0f172a] tracking-tight">Gestion de Vehiculos</h1>
+<h1 class="text-[28px] font-bold text-[#0f172a] tracking-tight">Control de Combustible y Kilometraje</h1>
 <p class="text-[#64748b] text-sm mt-1">Inicie sesion para continuar</p>
 </div>
 
@@ -132,10 +159,13 @@ body { font-family: 'Inter', sans-serif; background: linear-gradient(135deg, #f8
 <div>
 <label class="text-xs font-bold uppercase text-[#64748b] tracking-wide">Contrasena</label>
 <div class="relative mt-1.5">
-<input name="password" type="password" class="input-modern w-full border border-[#e2e8f0] rounded-xl p-3 bg-white/80 focus:outline-none placeholder:text-[#94a3b8]" placeholder="Ingrese su contrasena" required/>
-<span class="material-symbols-outlined absolute right-3 top-3 text-[#94a3b8]">lock</span>
+<input name="password" type="password" id="loginPassword" class="input-modern w-full border border-[#e2e8f0] rounded-xl p-3 bg-white/80 focus:outline-none placeholder:text-[#94a3b8]" placeholder="Ingrese su contrasena" required/>
+<span id="togglePassword" class="material-symbols-outlined absolute right-3 top-3 text-[#94a3b8] cursor-pointer select-none" onclick="togglePass()">visibility</span>
 </div>
 </div>
+<script>
+function togglePass(){var i=document.getElementById('loginPassword'),e=document.getElementById('togglePassword');'password'===i.type?(i.type='text',e.textContent='visibility_off'):(i.type='password',e.textContent='visibility')}
+</script>
 
 <button type="submit" class="btn-modern w-full bg-[#0f172a] text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2">
 <span class="material-symbols-outlined">login</span>
@@ -144,7 +174,7 @@ Iniciar Sesion
 </form>
 </div>
 
-<p class="text-center text-xs text-[#94a3b8] mt-8">Sistema de Gestion de Vehiculos v2.0</p>
+<p class="text-center text-xs text-[#94a3b8] mt-8">Control de Combustible y Kilometraje v2.0</p>
 </div>
 </body>
 </html>

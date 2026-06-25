@@ -93,13 +93,28 @@ INSERT INTO permisos (codigo, nombre, modulo) VALUES
 ('combustible_cargar', 'Cargar combustible', 'Combustible'),
 ('combustible_editar', 'Editar combustible', 'Combustible'),
 ('combustible_eliminar', 'Eliminar combustible', 'Combustible'),
+('combustible_importar', 'Importar combustible', 'Combustible'),
 ('kilometraje_ver', 'Ver kilometraje', 'Kilometraje'),
 ('kilometraje_cargar', 'Cargar kilometraje', 'Kilometraje'),
 ('kilometraje_editar', 'Editar kilometraje', 'Kilometraje'),
+('viajes_importar', 'Importar viajes', 'Kilometraje'),
 ('mantenimiento_ver', 'Ver mantenimiento', 'Mantenimiento'),
 ('mantenimiento_crear', 'Crear mantenimiento', 'Mantenimiento'),
 ('mantenimiento_editar', 'Editar mantenimiento', 'Mantenimiento'),
 ('mantenimiento_eliminar', 'Eliminar mantenimiento', 'Mantenimiento'),
+('choferes_ver', 'Ver choferes', 'Choferes'),
+('choferes_crear', 'Crear choferes', 'Choferes'),
+('choferes_editar', 'Editar choferes', 'Choferes'),
+('choferes_eliminar', 'Eliminar choferes', 'Choferes'),
+('alertas_ver', 'Ver alertas', 'Alertas'),
+('empresas_ver', 'Ver empresas', 'Empresas'),
+('empresas_crear', 'Crear empresas', 'Empresas'),
+('empresas_editar', 'Editar empresas', 'Empresas'),
+('empresas_eliminar', 'Eliminar empresas', 'Empresas'),
+('matafuegos_ver', 'Ver matafuegos', 'Matafuegos'),
+('matafuegos_crear', 'Crear matafuegos', 'Matafuegos'),
+('matafuegos_editar', 'Editar matafuegos', 'Matafuegos'),
+('matafuegos_eliminar', 'Eliminar matafuegos', 'Matafuegos'),
 ('reportes_ver', 'Ver reportes', 'Reportes'),
 ('reportes_exportar_pdf', 'Exportar PDF', 'Reportes'),
 ('reportes_exportar_excel', 'Exportar Excel', 'Reportes'),
@@ -109,16 +124,16 @@ INSERT INTO permisos (codigo, nombre, modulo) VALUES
 ('usuarios_eliminar', 'Eliminar usuarios', 'Usuarios');
 
 -- Asignar todos los permisos al Administrador (rol 1)
-INSERT INTO rol_permiso (id_rol, id_permiso)
+INSERT IGNORE INTO rol_permiso (id_rol, id_permiso)
 SELECT 1, id_permiso FROM permisos;
 
 -- Asignar permisos al Supervisor (rol 2): todo excepto gestión de usuarios y eliminación
-INSERT INTO rol_permiso (id_rol, id_permiso)
+INSERT IGNORE INTO rol_permiso (id_rol, id_permiso)
 SELECT 2, id_permiso FROM permisos
-WHERE codigo NOT IN ('usuarios_crear', 'usuarios_editar', 'usuarios_eliminar', 'vehiculos_eliminar', 'combustible_eliminar', 'mantenimiento_eliminar');
+WHERE codigo NOT IN ('usuarios_crear', 'usuarios_editar', 'usuarios_eliminar', 'vehiculos_eliminar', 'combustible_eliminar', 'combustible_importar', 'mantenimiento_eliminar', 'choferes_eliminar', 'empresas_eliminar', 'matafuegos_eliminar', 'viajes_importar');
 
 -- Asignar permisos al Chofer (rol 3): solo lo básico
-INSERT INTO rol_permiso (id_rol, id_permiso)
+INSERT IGNORE INTO rol_permiso (id_rol, id_permiso)
 SELECT 3, id_permiso FROM permisos
 WHERE codigo IN ('combustible_cargar', 'kilometraje_cargar', 'mantenimiento_crear');
 

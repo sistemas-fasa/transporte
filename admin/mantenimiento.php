@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
+requirePermission('mantenimiento_ver');
 $pageTitle = 'Gestion de Mantenimiento';
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';

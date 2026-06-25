@@ -175,11 +175,15 @@ try {
 
         case 'usuario':
             $id = (int)($_GET['id'] ?? 0);
-            $stmt = $db->prepare("SELECT u.*, ur.id_rol FROM usuarios u LEFT JOIN usuario_rol ur ON u.id_usuario = ur.id_usuario WHERE u.id_usuario = ?");
+            $stmt = $db->prepare("SELECT * FROM usuarios WHERE id_usuario = ?");
             $stmt->execute([$id]);
             $user = $stmt->fetch();
             if ($user) {
-                $user['id_rol'] = $user['id_rol'] ?? null;
+                $stmtRoles = $db->prepare("SELECT id_rol FROM usuario_rol WHERE id_usuario = ?");
+                $stmtRoles->execute([$id]);
+                $roles = $stmtRoles->fetchAll(PDO::FETCH_COLUMN);
+                $user['id_rol'] = $roles[0] ?? null;
+                $user['roles'] = $roles;
             }
             echo json_encode($user ?: []);
             break;
@@ -196,6 +200,14 @@ try {
 
         case 'lista_roles':
             $stmt = $db->query("SELECT id_rol, nombre, descripcion FROM roles ORDER BY nombre");
+            echo json_encode($stmt->fetchAll());
+            break;
+
+        case 'chofer_camiones':
+            $idChofer = (int)($_GET['id_chofer'] ?? 0);
+            if ($idChofer <= 0) { echo json_encode([]); break; }
+            $stmt = $db->prepare("SELECT c.id_camion, c.patente, c.marca, c.modelo, c.tara FROM asignaciones a JOIN camiones c ON a.id_camion = c.id_camion WHERE a.id_chofer = ? AND a.activa = 1 AND c.estado = 'activo' ORDER BY c.patente");
+            $stmt->execute([$idChofer]);
             echo json_encode($stmt->fetchAll());
             break;
 

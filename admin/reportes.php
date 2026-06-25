@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
+requirePermission('reportes_ver');
 $pageTitle = 'Reportes';
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
@@ -12,9 +13,11 @@ $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $anio = $_GET['anio'] ?? date('Y');
 $id_chofer = $_GET['id_chofer'] ?? '';
 $id_camion = $_GET['id_camion'] ?? '';
+$id_empresa = $_GET['id_empresa'] ?? '';
 
 $camionesList = $db->query("SELECT id_camion, patente FROM camiones ORDER BY patente")->fetchAll();
 $choferesList = $db->query("SELECT id_chofer, nombre, apellido FROM choferes ORDER BY apellido")->fetchAll();
+$empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo = 1 ORDER BY nombre")->fetchAll();
 ?>
 
 <main class="pt-20 pb-24 md:pb-8 md:pl-64 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
@@ -24,10 +27,10 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido FROM choferes ORD
 <p class="font-body-md text-body-md text-on-surface-variant">Exportacion de datos y analisis.</p>
 </div>
 <div class="flex gap-2">
-<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=pdf&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>" class="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
+<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=pdf&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>" class="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
 <span class="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
 </a>
-<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=excel&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>" class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
+<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=excel&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>" class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
 <span class="material-symbols-outlined text-sm">table_chart</span> Excel
 </a>
 </div>
@@ -74,6 +77,15 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido FROM choferes ORD
 <option value="">Todos</option>
 <?php foreach($camionesList as $cam): ?>
 <option value="<?= $cam['id_camion'] ?>" <?= $id_camion == $cam['id_camion'] ? 'selected' : '' ?>><?= $cam['patente'] ?></option>
+<?php endforeach; ?>
+</select>
+</div>
+<div>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Empresa</label>
+<select name="id_empresa" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm">
+<option value="">Todas</option>
+<?php foreach($empresasList as $emp): ?>
+<option value="<?= $emp['id_empresa'] ?>" <?= $id_empresa == $emp['id_empresa'] ? 'selected' : '' ?>><?= $emp['nombre'] ?></option>
 <?php endforeach; ?>
 </select>
 </div>

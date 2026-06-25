@@ -11,6 +11,7 @@ $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $anio = $_GET['anio'] ?? date('Y');
 $id_chofer = $_GET['id_chofer'] ?? '';
 $id_camion = $_GET['id_camion'] ?? '';
+$id_empresa = $_GET['id_empresa'] ?? '';
 
 function generarCSV($data, $headers, $filename) {
     header('Content-Type: text/csv; charset=utf-8');
@@ -61,6 +62,7 @@ switch ($tipo) {
         $params = [$desde, $hasta];
         if ($id_chofer) { $sql .= " AND co.id_chofer = ?"; $params[] = $id_chofer; }
         if ($id_camion) { $sql .= " AND co.id_camion = ?"; $params[] = $id_camion; }
+        if ($id_empresa) { $sql .= " AND ch.empresa_id = ?"; $params[] = $id_empresa; }
         $sql .= " ORDER BY co.fecha";
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
@@ -73,6 +75,7 @@ switch ($tipo) {
         $sql = "SELECT m.fecha, c.patente as camion, m.tipo, m.descripcion, m.proveedor, m.costo, m.kilometraje FROM mantenimientos m JOIN camiones c ON m.id_camion = c.id_camion WHERE m.fecha BETWEEN ? AND ?";
         $params = [$desde, $hasta];
         if ($id_camion) { $sql .= " AND m.id_camion = ?"; $params[] = $id_camion; }
+        if ($id_empresa) { $sql .= " AND c.empresa_id = ?"; $params[] = $id_empresa; }
         $sql .= " ORDER BY m.fecha";
         $stmt = $db->prepare($sql);
         $stmt->execute($params);

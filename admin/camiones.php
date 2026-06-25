@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
+requirePermission('vehiculos_ver');
 $pageTitle = 'Gestion de Vehiculos';
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
@@ -10,7 +11,7 @@ $mensaje = '';
 $error = '';
 
 // Asegurar que las columnas existan por si no corrió la sincronización
-foreach (['vtv DATE NULL', 'tara DECIMAL(10,2) NULL', 'proximo_mantenimiento_km DECIMAL(12,2) NULL', 'proximo_mantenimiento_hs DECIMAL(10,2) NULL', "tipo VARCHAR(50) DEFAULT 'camion'", "foto VARCHAR(255) NULL"] as $col) {
+foreach (['vtv DATE NULL', 'tara DECIMAL(10,2) NULL', 'proximo_mantenimiento_km DECIMAL(12,2) NULL', 'proximo_mantenimiento_hs DECIMAL(10,2) NULL', "tipo VARCHAR(50) DEFAULT 'camion'", "foto VARCHAR(255) NULL", "empresa_id INT DEFAULT NULL"] as $col) {
     try { $db->exec("ALTER TABLE camiones ADD COLUMN $col"); } catch (Exception $e) {}
 }
 
@@ -72,11 +73,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $proxHs = !empty($_POST['proximo_mantenimiento_hs']) ? (float)$_POST['proximo_mantenimiento_hs'] : null;
         $estado = $_POST['estado'] ?? 'activo';
         $tipo = $_POST['tipo'] ?? 'camion';
+        $empresa_id = !empty($_POST['empresa_id']) ? (int)$_POST['empresa_id'] : null;
 
         if ($action === 'create') {
             try {
-                $stmt = $db->prepare("INSERT INTO camiones (patente, marca, modelo, anio, kilometraje_actual, capacidad_tanque, vtv, tara, proximo_mantenimiento_km, proximo_mantenimiento_hs, estado, tipo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
-                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo]);
+                $stmt = $db->prepare("INSERT INTO camiones (patente, marca, modelo, anio, kilometraje_actual, capacidad_tanque, vtv, tara, proximo_mantenimiento_km, proximo_mantenimiento_hs, estado, tipo, empresa_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id]);
                 $idCamion = $db->lastInsertId();
                 registrarAuditoria(getCurrentUserId(), 'create', 'camiones', $idCamion, "Creo vehiculo $patente");
                 $mensaje = 'Vehiculo creado exitosamente';
@@ -86,8 +88,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $id = (int)($_POST['id_camion'] ?? 0);
             try {
-                $stmt = $db->prepare("UPDATE camiones SET patente=?, marca=?, modelo=?, anio=?, kilometraje_actual=?, capacidad_tanque=?, vtv=?, tara=?, proximo_mantenimiento_km=?, proximo_mantenimiento_hs=?, estado=?, tipo=? WHERE id_camion=?");
-                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $id]);
+                $stmt = $db->prepare("UPDATE camiones SET patente=?, marca=?, modelo=?, anio=?, kilometraje_actual=?, capacidad_tanque=?, vtv=?, tara=?, proximo_mantenimiento_km=?, proximo_mantenimiento_hs=?, estado=?, tipo=?, empresa_id=? WHERE id_camion=?");
+                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $id]);
                 registrarAuditoria(getCurrentUserId(), 'update', 'camiones', $id, "Actualizo vehiculo $patente");
                 $mensaje = 'Vehiculo actualizado exitosamente';
             } catch (Exception $e) {
@@ -117,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $buscar = $_GET['buscar'] ?? '';
 $filtro_estado = $_GET['estado'] ?? '';
 
-$sql = "SELECT c.*, (SELECT COUNT(*) FROM asignaciones WHERE id_camion = c.id_camion AND activa = 1) as asignado FROM camiones c WHERE 1=1";
+$sql = "SELECT c.*, e.nombre as empresa_nombre, (SELECT COUNT(*) FROM asignaciones WHERE id_camion = c.id_camion AND activa = 1) as asignado FROM camiones c LEFT JOIN empresas e ON c.empresa_id = e.id_empresa WHERE 1=1";
 $params = [];
 if ($buscar) {
     $sql .= " AND (c.patente LIKE ? OR c.marca LIKE ? OR c.modelo LIKE ?)";
@@ -131,6 +133,7 @@ $sql .= " ORDER BY c.created_at DESC";
 $camiones = $db->prepare($sql);
 $camiones->execute($params);
 $camionesList = $camiones->fetchAll();
+$empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo = 1 ORDER BY nombre")->fetchAll();
 ?>
 
 <main class="pt-20 pb-24 md:pb-8 md:pl-64 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
@@ -196,6 +199,7 @@ $tipoIconos = [
     'maquina' => 'precision_manufacturing',
     'grua_prensa' => 'crane',
     'moto' => 'motorcycle',
+    'cachape' => 'local_shipping',
 ];
 $tipoLabels = [
     'camion' => 'Camión',
@@ -207,6 +211,7 @@ $tipoLabels = [
     'maquina' => 'Máquina',
     'grua_prensa' => 'Grúa/Prensa',
     'moto' => 'Moto',
+    'cachape' => 'Cachapé',
 ];
 $tipo = $camion['tipo'] ?? 'camion';
 $icono = $tipoIconos[$tipo] ?? 'local_shipping';
@@ -242,6 +247,7 @@ $tipoLabel = $tipoLabels[$tipo] ?? $tipo;
 <div>
 <h3 class="font-headline-sm text-headline-sm text-primary"><?= htmlspecialchars($camion['marca']) ?> <?= htmlspecialchars($camion['modelo']) ?></h3>
 <p class="font-body-md text-on-surface-variant">Patente: <span class="font-bold text-primary"><?= htmlspecialchars($camion['patente']) ?></span></p>
+<?php if ($camion['empresa_nombre']): ?><p class="text-xs text-on-surface-variant mt-1"><span class="material-symbols-outlined text-[14px] align-text-bottom">business</span> <?= htmlspecialchars($camion['empresa_nombre']) ?></p><?php endif; ?>
 </div>
 <div class="flex flex-col items-end gap-1">
 <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase border border-<?= $est['color'] ?>-200 bg-<?= $est['color'] ?>-100 text-<?= $est['color'] ?>-800"><?= $est['text'] ?></span>
@@ -377,6 +383,16 @@ Historial
 <option value="maquina">Máquina</option>
 <option value="grua_prensa">Grúa/Prensa</option>
 <option value="moto">Moto</option>
+<option value="cachape">Cachapé</option>
+</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Empresa</label>
+<select name="empresa_id" id="camepresa" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none">
+<option value="">Sin empresa</option>
+<?php foreach ($empresasList as $emp): ?>
+<option value="<?= $emp['id_empresa'] ?>"><?= htmlspecialchars($emp['nombre']) ?></option>
+<?php endforeach; ?>
 </select>
 </div>
 <div class="flex flex-col gap-1">
@@ -456,6 +472,7 @@ document.getElementById('camtara').value = data.tara || '';
 document.getElementById('camproxkm').value = data.proximo_mantenimiento_km || '';
 document.getElementById('camproxhs').value = data.proximo_mantenimiento_hs || '';
 document.getElementById('camtipo').value = data.tipo || 'camion';
+document.getElementById('camepresa').value = data.empresa_id || '';
 document.getElementById('camestado').value = data.estado;
 document.getElementById('modalCamionTitle').textContent = 'Editar Vehiculo';
 openModal('modalCamion');
@@ -478,6 +495,7 @@ document.getElementById('camtara').value = '';
 document.getElementById('camproxkm').value = '';
 document.getElementById('camproxhs').value = '';
 document.getElementById('camtipo').value = 'camion';
+document.getElementById('camepresa').value = '';
 document.getElementById('camestado').value = 'activo';
 document.getElementById('modalCamionTitle').textContent = 'Nuevo Vehiculo';
 }
@@ -533,15 +551,7 @@ function filterTable() {
     });
 }
 
-document.getElementById('modalCamion').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalCamion');
-});
-document.getElementById('modalAsignar').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalAsignar');
-});
-document.getElementById('modalHistorial').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalHistorial');
-});
+
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

@@ -2,8 +2,6 @@
 require_once __DIR__ . '/../includes/auth.php';
 requireChoferAccess('combustible_cargar');
 $pageTitle = 'Cargar Combustible';
-require_once __DIR__ . '/../includes/header.php';
-require_once __DIR__ . '/../includes/sidebar_chofer.php';
 
 $db = getDB();
 $userId = getCurrentUserId();
@@ -69,6 +67,7 @@ foreach ($camionesAsignados as $ca) {
 
 $camion = $camionesAsignados[0] ?? null;
 
+// --- POST handler antes de output (para que header() funcione) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $fecha = $_POST['fecha'] ?? date('Y-m-d H:i:s');
     $estacion = trim($_POST['estacion_servicio'] ?? '');
@@ -77,11 +76,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $km_carga = (float)($_POST['kilometraje'] ?? 0);
     $id_camion = (int)($_POST['id_camion'] ?? 0);
 
+    $uploadDir = __DIR__ . '/../assets/uploads/tickets/';
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0755, true);
+    }
+
     $foto_ticket = null;
     if (isset($_FILES['foto_ticket']) && $_FILES['foto_ticket']['error'] === UPLOAD_ERR_OK) {
         $ext = pathinfo($_FILES['foto_ticket']['name'], PATHINFO_EXTENSION);
         $foto_ticket = 'ticket_' . uniqid() . '.' . $ext;
-        move_uploaded_file($_FILES['foto_ticket']['tmp_name'], __DIR__ . '/../assets/uploads/tickets/' . $foto_ticket);
+        @move_uploaded_file($_FILES['foto_ticket']['tmp_name'], $uploadDir . $foto_ticket);
     }
 
     if (!$idChofer) {
@@ -98,6 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+require_once __DIR__ . '/../includes/header.php';
+require_once __DIR__ . '/../includes/sidebar_chofer.php';
 
 $combustibles = [];
 if ($idChofer) {
@@ -256,7 +263,7 @@ if ($idChofer) {
 
 </main>
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
 <script>
 // Truck selection
 const camionSelect = document.getElementById('camionSelect');

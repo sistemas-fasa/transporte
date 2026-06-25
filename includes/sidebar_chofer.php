@@ -5,12 +5,12 @@
 <a href="<?= BASE_URL ?>/chofer/panel.php" class="logo-link">
 <img src="<?= BASE_URL ?>/Logo/Logo_App.png" alt="Logo" class="h-9 w-auto object-contain logo-img"/>
 </a>
-<h1 class="font-headline-md text-headline-md font-bold text-primary tracking-tight">GESTION DE VEHICULOS</h1>
+<h1 class="font-headline-md text-headline-md font-bold text-primary tracking-tight">CONTROL COMBUSTIBLE Y KM</h1>
 </div>
 <div class="flex items-center gap-4">
 <div class="text-right hidden md:block">
 <p class="font-label-caps text-label-caps text-on-surface-variant">HOLA, <?= strtoupper(htmlspecialchars(getCurrentUserName())) ?></p>
-<p class="text-[10px] text-outline">CHOFER OPERATIVO</p>
+<p class="text-[10px] text-outline"><?= strtoupper(htmlspecialchars(getCurrentUserRoles()[0]['nombre'] ?? 'CHOFER')) ?></p>
 </div>
 <a href="<?= BASE_URL ?>/logout.php" class="material-symbols-outlined text-primary cursor-pointer">logout</a>
 </div>
@@ -22,17 +22,23 @@
 <a href="<?= BASE_URL ?>/chofer/panel.php" class="logo-link">
 <img src="<?= BASE_URL ?>/Logo/Logo_App.png" alt="Logo" class="h-10 w-auto object-contain logo-img"/>
 </a>
-<h2 class="font-headline-sm text-headline-sm text-on-primary-container opacity-80">CHOFER</h2>
+<h2 class="font-headline-sm text-headline-sm text-on-primary-container opacity-80"><?= strtoupper(htmlspecialchars(getCurrentUserRoles()[0]['nombre'] ?? 'CHOFER')) ?></h2>
 </div>
 <nav class="flex-1 overflow-y-auto no-scrollbar">
 <?php
-$navItems = [
-    ['label' => 'Mi Panel', 'icon' => 'dashboard', 'link' => '/chofer/panel.php', 'page' => 'panel.php'],
-    ['label' => 'Cargar Combustible', 'icon' => 'local_gas_station', 'link' => '/chofer/cargar_combustible.php', 'page' => 'cargar_combustible.php'],
-    ['label' => 'Registrar Mantenimiento', 'icon' => 'build', 'link' => '/chofer/registrar_mantenimiento.php', 'page' => 'registrar_mantenimiento.php'],
-    ['label' => 'Mis Viajes', 'icon' => 'map', 'link' => '/chofer/viajes.php', 'page' => 'viajes.php'],
-    ['label' => 'Mi Historial', 'icon' => 'history', 'link' => '/chofer/historial.php', 'page' => 'historial.php'],
+$allNavItems = [
+    ['label' => 'Mi Panel', 'icon' => 'dashboard', 'link' => '/chofer/panel.php', 'page' => 'panel.php', 'permiso' => null],
+    ['label' => 'Cargar Combustible', 'icon' => 'local_gas_station', 'link' => '/chofer/cargar_combustible.php', 'page' => 'cargar_combustible.php', 'permiso' => 'combustible_cargar'],
+    ['label' => 'Registrar Mantenimiento', 'icon' => 'build', 'link' => '/chofer/registrar_mantenimiento.php', 'page' => 'registrar_mantenimiento.php', 'permiso' => 'mantenimiento_crear'],
+    ['label' => 'Mis Viajes', 'icon' => 'map', 'link' => '/chofer/viajes.php', 'page' => 'viajes.php', 'permiso' => 'kilometraje_cargar'],
+    ['label' => 'Mi Historial', 'icon' => 'history', 'link' => '/chofer/historial.php', 'page' => 'historial.php', 'permiso' => null],
 ];
+$navItems = [];
+foreach ($allNavItems as $item):
+    if ($item['permiso'] === null || hasPermission($item['permiso'])):
+        $navItems[] = $item;
+    endif;
+endforeach;
 foreach ($navItems as $item):
     $active = $currentPage === $item['page'];
 ?>

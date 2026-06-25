@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
+requirePermission('choferes_ver');
 $pageTitle = 'Gestion de Choferes';
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
@@ -8,6 +9,9 @@ require_once __DIR__ . '/../includes/sidebar_admin.php';
 $db = getDB();
 $mensaje = '';
 $error = '';
+
+try { $db->exec("ALTER TABLE choferes ADD COLUMN empresa_id INT DEFAULT NULL"); } catch (Exception $e) {}
+$empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo = 1 ORDER BY nombre")->fetchAll();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -20,18 +24,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $licencia = trim($_POST['licencia'] ?? '');
         $vencimiento_licencia = $_POST['vencimiento_licencia'] ?? null;
         $estado = $_POST['estado'] ?? 'activo';
+        $empresa_id = !empty($_POST['empresa_id']) ? (int)$_POST['empresa_id'] : null;
 
         $nuevo_id = trim($_POST['nuevo_id_chofer'] ?? '');
 
         if ($action === 'create') {
             try {
                 if ($nuevo_id) {
-                    $stmt = $db->prepare("INSERT INTO choferes (id_chofer, nombre, apellido, dni, telefono, licencia, vencimiento_licencia, estado) VALUES (?,?,?,?,?,?,?,?)");
-                    $stmt->execute([$nuevo_id, $nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado]);
+                    $stmt = $db->prepare("INSERT INTO choferes (id_chofer, nombre, apellido, dni, telefono, licencia, vencimiento_licencia, estado, empresa_id) VALUES (?,?,?,?,?,?,?,?,?)");
+                    $stmt->execute([$nuevo_id, $nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado, $empresa_id]);
                     $idChofer = $nuevo_id;
                 } else {
-                    $stmt = $db->prepare("INSERT INTO choferes (nombre, apellido, dni, telefono, licencia, vencimiento_licencia, estado) VALUES (?,?,?,?,?,?,?)");
-                    $stmt->execute([$nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado]);
+                    $stmt = $db->prepare("INSERT INTO choferes (nombre, apellido, dni, telefono, licencia, vencimiento_licencia, estado, empresa_id) VALUES (?,?,?,?,?,?,?,?)");
+                    $stmt->execute([$nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado, $empresa_id]);
                     $idChofer = $db->lastInsertId();
                 }
 
@@ -54,12 +59,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $id = (int)($_POST['id_chofer'] ?? 0);
             try {
                 if ($nuevo_id && $nuevo_id != $id) {
-                    $stmt = $db->prepare("UPDATE choferes SET id_chofer=?, nombre=?, apellido=?, dni=?, telefono=?, licencia=?, vencimiento_licencia=?, estado=? WHERE id_chofer=?");
-                    $stmt->execute([$nuevo_id, $nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado, $id]);
+                    $stmt = $db->prepare("UPDATE choferes SET id_chofer=?, nombre=?, apellido=?, dni=?, telefono=?, licencia=?, vencimiento_licencia=?, estado=?, empresa_id=? WHERE id_chofer=?");
+                    $stmt->execute([$nuevo_id, $nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado, $empresa_id, $id]);
                     $id = $nuevo_id;
                 } else {
-                    $stmt = $db->prepare("UPDATE choferes SET nombre=?, apellido=?, dni=?, telefono=?, licencia=?, vencimiento_licencia=?, estado=? WHERE id_chofer=?");
-                    $stmt->execute([$nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado, $id]);
+                    $stmt = $db->prepare("UPDATE choferes SET nombre=?, apellido=?, dni=?, telefono=?, licencia=?, vencimiento_licencia=?, estado=?, empresa_id=? WHERE id_chofer=?");
+                    $stmt->execute([$nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado, $empresa_id, $id]);
                 }
                 registrarAuditoria(getCurrentUserId(), 'update', 'choferes', $id, "Actualizo chofer $nombre $apellido");
                 $mensaje = 'Chofer actualizado';
@@ -103,11 +108,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $buscar = $_GET['buscar'] ?? '';
-$sql = "SELECT c.*, 
+$sql = "SELECT c.*, e.nombre as empresa_nombre,
         (SELECT COUNT(*) FROM asignaciones WHERE id_chofer = c.id_chofer AND activa = 1) as tiene_camion,
         (SELECT username FROM usuarios WHERE id_chofer = c.id_chofer LIMIT 1) as usuario_asociado_nombre,
         (SELECT id_usuario FROM usuarios WHERE id_chofer = c.id_chofer LIMIT 1) as usuario_asociado_id
-        FROM choferes c WHERE 1=1";
+        FROM choferes c LEFT JOIN empresas e ON c.empresa_id = e.id_empresa WHERE 1=1";
 $params = [];
 if ($buscar) {
     $sql .= " AND (c.nombre LIKE ? OR c.apellido LIKE ? OR c.dni LIKE ?)";
@@ -153,6 +158,7 @@ $usuariosDisponibles = $db->query("SELECT u.id_usuario, u.username, u.nombre, u.
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">LICENCIA</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">VTO LICENCIA</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">TELEFONO</th>
+<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">EMPRESA</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left hidden lg:table-cell">USUARIO</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-center">ESTADO</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-center">ACCIONES</th>
@@ -170,6 +176,7 @@ $usuariosDisponibles = $db->query("SELECT u.id_usuario, u.username, u.nombre, u.
 <td class="px-6 py-4"><?= htmlspecialchars($ch['licencia'] ?? '-') ?></td>
 <td class="px-6 py-4"><?= $ch['vencimiento_licencia'] ? date('d/m/Y', strtotime($ch['vencimiento_licencia'])) : '-' ?></td>
 <td class="px-6 py-4"><?= htmlspecialchars($ch['telefono'] ?? '-') ?></td>
+<td class="px-6 py-4 text-sm text-on-surface-variant"><?= htmlspecialchars($ch['empresa_nombre'] ?? '-') ?></td>
 <td class="px-6 py-4 hidden lg:table-cell">
 <?php if ($ch['usuario_asociado_nombre']): ?>
 <div class="flex items-center gap-1">
@@ -223,6 +230,15 @@ $usuariosDisponibles = $db->query("SELECT u.id_usuario, u.username, u.nombre, u.
 <div class="grid grid-cols-2 gap-4">
 <div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Licencia</label><input name="licencia" id="chlicencia" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/></div>
 <div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Vto. Licencia</label><input name="vencimiento_licencia" id="chvencimiento" type="date" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/></div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Empresa</label>
+<select name="empresa_id" id="chempresa" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low">
+<option value="">Sin empresa</option>
+<?php foreach ($empresasList as $emp): ?>
+<option value="<?= $emp['id_empresa'] ?>"><?= htmlspecialchars($emp['nombre']) ?></option>
+<?php endforeach; ?>
+</select>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Estado</label>
@@ -287,15 +303,14 @@ document.getElementById('chdni').value = data.dni;
 document.getElementById('chtelefono').value = data.telefono || '';
 document.getElementById('chlicencia').value = data.licencia || '';
 document.getElementById('chvencimiento').value = data.vencimiento_licencia || '';
+document.getElementById('chempresa').value = data.empresa_id || '';
 document.getElementById('chestado').value = data.estado;
 document.getElementById('modalChoferTitle').textContent = 'Editar Chofer';
 openModal('modalChofer');
 });
 }
 
-document.getElementById('modalAsociarUsuario').addEventListener('click', function(e) {
-if (e.target === this) closeModal('modalAsociarUsuario');
-});
+
 
 function filterChoferes() {
 const search = document.getElementById('searchChofer').value.toLowerCase();

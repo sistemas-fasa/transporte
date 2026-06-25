@@ -87,6 +87,7 @@ $mantenimientoAlertas = $db->query("
 <main class="pt-20 pb-24 md:pb-8 md:pl-64 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
 <!-- KPI Cards Grid -->
 <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+<?php if (hasPermission('vehiculos_ver')): ?>
 <div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
 <div class="flex items-center gap-3 text-secondary mb-3">
 <div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
@@ -97,6 +98,8 @@ $mantenimientoAlertas = $db->query("
 <div class="font-headline-lg text-headline-lg text-primary"><?= number_format($totalCamiones['total']) ?></div>
 <div class="text-[11px] text-on-surface-variant font-medium mt-1.5">OPERATIVOS: <span class="text-green-600 font-bold"><?= number_format($totalCamiones['activos']) ?></span></div>
 </div>
+<?php endif; ?>
+<?php if (hasPermission('usuarios_ver')): ?>
 <div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
 <div class="flex items-center gap-3 text-secondary mb-3">
 <div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
@@ -107,6 +110,8 @@ $mantenimientoAlertas = $db->query("
 <div class="font-headline-lg text-headline-lg text-primary"><?= number_format($totalChoferes['total']) ?></div>
 <div class="text-[11px] text-on-surface-variant font-medium mt-1.5">ACTIVOS: <span class="text-green-600 font-bold"><?= number_format($totalChoferes['activos']) ?></span></div>
 </div>
+<?php endif; ?>
+<?php if (hasPermission('kilometraje_ver')): ?>
 <div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
 <div class="flex items-center gap-3 text-secondary mb-3">
 <div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
@@ -117,6 +122,8 @@ $mantenimientoAlertas = $db->query("
 <div class="font-headline-lg text-headline-lg text-primary"><?= number_format($kmData['total'], 0) ?> <span class="text-body-md text-on-surface-variant">km</span></div>
 <div class="text-[11px] text-green-600 font-bold mt-1.5">MES ACTUAL</div>
 </div>
+<?php endif; ?>
+<?php if (hasPermission('combustible_ver')): ?>
 <div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
 <div class="flex items-center gap-3 text-secondary mb-3">
 <div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
@@ -124,9 +131,10 @@ $mantenimientoAlertas = $db->query("
 </div>
 <span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Gasto Combustible</span>
 </div>
-<div class="font-headline-lg text-headline-lg text-primary">$<?= number_format($gastoCombData['total'], 2) ?></div>
+<div class="font-headline-lg text-headline-lg text-primary"><?= esAdminPleno() ? '$' . number_format($gastoCombData['total'], 2) : '-' ?></div>
 <div class="text-[11px] text-on-surface-variant font-medium mt-1.5">LITROS: <span class="text-green-600 font-bold"><?= number_format($litrosData['total'], 2) ?></span></div>
 </div>
+<?php endif; ?>
 </section>
 
 <!-- Bento Layout -->
@@ -166,6 +174,7 @@ $patente = $alerta['patente'] ?? '';
 </div>
 </section>
 
+<?php if (hasPermission('combustible_ver')): ?>
 <!-- Gasto por camion -->
 <section class="lg:col-span-5 bg-surface-container-lowest border border-outline-variant rounded-xl p-6 flex flex-col card-modern">
 <h2 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider mb-6">Gasto por Camion (Mes)</h2>
@@ -177,24 +186,26 @@ $patente = $alerta['patente'] ?? '';
 <div class="space-y-1">
 <div class="flex justify-between text-[11px] font-bold text-secondary uppercase gap-2">
 <span class="truncate"><?= htmlspecialchars($gc['patente']) ?> (<?= htmlspecialchars($gc['marca']) ?>)</span>
-<span class="shrink-0">$<?= number_format($gc['total'], 2) ?></span>
+<span class="shrink-0"><?= esAdminPleno() ? '$' . number_format($gc['total'], 2) : '-' ?></span>
 </div>
 <div class="w-full bg-surface-container-high h-4">
 <div class="bg-primary h-full transition-all duration-1000" style="width: <?= $width ?>%"></div>
 </div>
 <div class="flex justify-between text-[10px] text-on-surface-variant">
 <span>KM: <?= number_format($gc['km'], 0) ?> km</span>
-<span><?= $gc['km'] > 0 ? '$' . number_format($gc['total'] / $gc['km'], 2) . '/km' : '' ?></span>
+<span><?= $gc['km'] > 0 ? (esAdminPleno() ? '$' . number_format($gc['total'] / $gc['km'], 2) . '/km' : '-') : '' ?></span>
 </div>
 </div>
 <?php endforeach; ?>
 </div>
 </div>
 </section>
+<?php endif; ?>
 </div>
 
 <!-- Charts Row -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+<?php if (hasPermission('combustible_ver')): ?>
 <!-- Combustible por mes -->
 <div class="bg-surface-container-lowest border border-outline-variant p-6 overflow-x-auto">
 <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 overflow-x-auto card-modern">
@@ -207,9 +218,10 @@ $patente = $alerta['patente'] ?? '';
 <canvas id="chartRendimiento" height="200"></canvas>
 </div>
 </div>
+<?php endif; ?>
 
+<?php if (hasPermission('vehiculos_ver') && !empty($vtvAlertas)): ?>
 <!-- VTV Proximas a Vencer -->
-<?php if (!empty($vtvAlertas)): ?>
 <section class="mt-8">
 <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden card-modern">
 <div class="p-6 border-b border-outline-variant flex items-center gap-2">
@@ -240,8 +252,8 @@ else { $c = 'yellow'; $label = "$dias dias"; }
 </section>
 <?php endif; ?>
 
+<?php if (hasPermission('mantenimiento_ver') && !empty($mantenimientoAlertas)): ?>
 <!-- Proximo Mantenimiento -->
-<?php if (!empty($mantenimientoAlertas)): ?>
 <section class="mt-8">
 <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden card-modern">
 <div class="p-6 border-b border-outline-variant flex items-center gap-2">
@@ -284,25 +296,33 @@ else { $c = 'gray'; $label = '-'; }
 <h3 class="font-headline-sm text-headline-sm text-primary uppercase">Resumen del Mes</h3>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-outline-variant">
+<?php if (hasPermission('combustible_ver')): ?>
 <div class="p-6">
 <h4 class="font-body-md font-bold text-primary uppercase mb-2">Combustible</h4>
 <p class="text-on-surface-variant mb-4">Litros consumidos: <strong><?= number_format($litrosData['total'], 2) ?> L</strong></p>
-<p class="text-on-surface-variant">Gasto total: <strong>$<?= number_format($gastoCombData['total'], 2) ?></strong></p>
+<p class="text-on-surface-variant">Gasto total: <strong><?= esAdminPleno() ? '$' . number_format($gastoCombData['total'], 2) : '-' ?></strong></p>
 </div>
+<?php endif; ?>
+<?php if (hasPermission('mantenimiento_ver')): ?>
 <div class="p-6">
 <h4 class="font-body-md font-bold text-primary uppercase mb-2">Mantenimiento</h4>
-<p class="text-on-surface-variant mb-4">Gasto del mes: <strong>$<?= number_format($gastoMantData['total'], 2) ?></strong></p>
+<p class="text-on-surface-variant mb-4">Gasto del mes: <strong><?= esAdminPleno() ? '$' . number_format($gastoMantData['total'], 2) : '-' ?></strong></p>
 </div>
+<?php endif; ?>
+<?php if (hasPermission('kilometraje_ver')): ?>
 <div class="p-6">
 <h4 class="font-body-md font-bold text-primary uppercase mb-2">Kilometraje</h4>
 <p class="text-on-surface-variant mb-4">KM recorridos: <strong><?= number_format($kmData['total'], 0) ?> km</strong></p>
 </div>
+<?php endif; ?>
 </div>
 </div>
 </section>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
+<?php if (hasPermission('combustible_ver')): ?>
 const combustibleData = {
 labels: [<?php foreach ($combustibleMeses as $c): ?>'<?= $c['mes'] ?>',<?php endforeach; ?>],
 datasets: [{
@@ -334,6 +354,7 @@ type: 'bar',
 data: rendimientoData,
 options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'km/l', font: { weight: 'bold' } } } } }
 });
+<?php endif; ?>
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
