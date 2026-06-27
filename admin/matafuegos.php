@@ -3,6 +3,13 @@ require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
 requirePermission('matafuegos_ver');
 $pageTitle = 'Gestion de Matafuegos';
+$mensaje = '';
+$error = '';
+if (isset($_GET['msg'])) {
+    $msgMap = ['ok' => 'Matafuego guardado exitosamente', 'del' => 'Matafuego eliminado', 'err' => 'Error al guardar el matafuego'];
+    $mensaje = $msgMap[$_GET['msg']] ?? '';
+    $error = $_GET['msg'] === 'err' ? $mensaje : '';
+}
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
 
@@ -42,28 +49,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($action === 'create') {
                 try {
                     $db->prepare("INSERT INTO matafuegos (numero, sector, clase, recarga, vencimiento, id_camion, observaciones) VALUES (?, ?, ?, ?, ?, ?, ?)")->execute([$numero, $sector, $clase, $recarga ?: null, $vencimiento, $id_camion, $observaciones ?: null]);
-                    $mensaje = 'Matafuego creado exitosamente';
+                    $_SESSION['flash_msg'] = 'Matafuego creado exitosamente';
+                    header('Location: ' . $_SERVER['PHP_SELF']);
+                    exit;
                 } catch (Exception $e) {
-                    $error = 'Error: ' . $e->getMessage();
+                    $_SESSION['flash_msg'] = 'Error: ' . $e->getMessage();
+                    header('Location: ' . $_SERVER['PHP_SELF']);
+                    exit;
                 }
             } else {
                 $id = (int)($_POST['id_matafuego'] ?? 0);
                 try {
                     $db->prepare("UPDATE matafuegos SET numero=?, sector=?, clase=?, recarga=?, vencimiento=?, id_camion=?, observaciones=? WHERE id_matafuego=?")->execute([$numero, $sector, $clase, $recarga ?: null, $vencimiento, $id_camion, $observaciones ?: null, $id]);
-                    $mensaje = 'Matafuego actualizado';
+                    $_SESSION['flash_msg'] = 'Matafuego actualizado';
                 } catch (Exception $e) {
-                    $error = 'Error: ' . $e->getMessage();
+                    $_SESSION['flash_msg'] = 'Error: ' . $e->getMessage();
                 }
+                header('Location: ' . $_SERVER['PHP_SELF']);
+                exit;
             }
         }
     } elseif ($action === 'delete') {
         $id = (int)($_POST['id_matafuego'] ?? 0);
         try {
             $db->prepare("DELETE FROM matafuegos WHERE id_matafuego = ?")->execute([$id]);
-            $mensaje = 'Matafuego eliminado';
+            $_SESSION['flash_msg'] = 'Matafuego eliminado';
         } catch (Exception $e) {
-            $error = 'Error al eliminar: ' . $e->getMessage();
+            $_SESSION['flash_msg'] = 'Error: ' . $e->getMessage();
         }
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
     }
 }
 

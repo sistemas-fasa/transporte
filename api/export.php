@@ -17,7 +17,7 @@ $buscar = $_GET['buscar'] ?? '';
 $orden = strtoupper($_GET['orden'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
 
 function isNumericHeader($h) {
-    $numeric = ['KM Salida', 'KM Llegada', 'KM Recorridos', 'Litros', 'Precio Litro', 'Importe Total', 'Costo', 'Kilometraje'];
+    $numeric = ['KM Salida', 'KM Llegada', 'KM Recorridos', 'HS Salida', 'HS Llegada', 'HS Recorridas', 'Litros', 'Precio Litro', 'Importe Total', 'Costo', 'Kilometraje'];
     return in_array($h, $numeric);
 }
 
@@ -334,14 +334,20 @@ switch ($tipo) {
                 $row['km_salida'] = $row['hs_salida'] !== null ? number_format($row['hs_salida'], 1) : '-';
                 $row['km_llegada'] = $row['hs_llegada'] !== null ? number_format($row['hs_llegada'], 1) : '-';
                 $row['km_recorridos'] = $row['hs_recorridas'] !== null ? number_format($row['hs_recorridas'], 1) . ' hs' : '-';
+                $row['hs_salida'] = $row['hs_salida'] !== null ? number_format($row['hs_salida'], 1) : '-';
+                $row['hs_llegada'] = $row['hs_llegada'] !== null ? number_format($row['hs_llegada'], 1) : '-';
+                $row['hs_recorridas'] = $row['hs_recorridas'] !== null ? number_format($row['hs_recorridas'], 1) . ' hs' : '-';
             } else {
                 $row['km_salida'] = number_format($row['km_salida'], 0);
                 $row['km_llegada'] = $row['km_llegada'] !== null ? number_format($row['km_llegada'], 0) : '-';
                 $row['km_recorridos'] = $row['km_recorridos'] !== null ? number_format($row['km_recorridos'], 0) : '-';
+                $row['hs_salida'] = $row['hs_salida'] !== null ? number_format($row['hs_salida'], 1) : '-';
+                $row['hs_llegada'] = $row['hs_llegada'] !== null ? number_format($row['hs_llegada'], 1) : '-';
+                $row['hs_recorridas'] = $row['hs_recorridas'] !== null ? number_format($row['hs_recorridas'], 1) . ' hs' : '-';
             }
         }
         unset($row);
-        $headers = ['Fecha', 'Chofer', 'Patente', 'Origen', 'Destino', 'KM Salida', 'KM Llegada', 'KM Recorridos', 'Estado', 'Nro Hoja Ruta', 'Rol'];
+        $headers = ['Fecha', 'Chofer', 'Patente', 'Origen', 'Destino', 'KM Salida', 'KM Llegada', 'KM Recorridos', 'HS Salida', 'HS Llegada', 'HS Recorridas', 'Estado', 'Nro Hoja Ruta', 'Rol'];
         $title = 'Reporte de Viajes';
         break;
 
