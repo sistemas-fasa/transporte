@@ -118,12 +118,13 @@ function generarExcel($data, $headers, $title, $totales = null) {
         return $l;
     }
     // Header row + data rows
-    $rowsXml = '';
+    $rowsXml = '<row r="1">';
     $colLetters = [];
     for ($c = 0; $c < count($headers); $c++) {
         $colLetters[$c] = colLetter($c);
         $rowsXml .= '<c r="' . $colLetters[$c] . '1" t="s" s="1"><v>' . addString($sharedStrings, $ssIndex, $headers[$c]) . '</v></c>';
     }
+    $rowsXml .= '</row>';
     $r = 2;
     foreach ($data as $row) {
         $rowsXml .= '<row r="' . $r . '">';
