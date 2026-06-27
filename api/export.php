@@ -79,6 +79,23 @@ function generarHTML($data, $headers, $title, $totales = null) {
 function generarExcel($data, $headers, $title, $totales = null) {
     global $desde, $hasta;
 
+    if (!class_exists('ZipArchive')) {
+        header('Content-Type: text/html; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . str_replace(' ', '_', $title) . '.xls"');
+        echo '<html><body><table>';
+        echo '<tr>' . implode('', array_map(function($h) { return '<th>' . htmlspecialchars($h) . '</th>'; }, $headers)) . '</tr>';
+        foreach ($data as $row) {
+            echo '<tr>';
+            foreach ($headers as $h) {
+                $key = strtolower(str_replace(' ', '_', $h));
+                echo '<td>' . htmlspecialchars($row[$key] ?? '') . '</td>';
+            }
+            echo '</tr>';
+        }
+        echo '</table></body></html>';
+        exit;
+    }
+
     header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     header('Content-Disposition: attachment; filename="' . str_replace(' ', '_', $title) . '.xlsx"');
     header('Cache-Control: max-age=0');
