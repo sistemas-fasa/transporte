@@ -78,11 +78,14 @@ function generarHTML($data, $headers, $title, $totales = null) {
 
 function generarExcel($data, $headers, $title, $totales = null) {
     global $desde, $hasta;
-    header('Content-Type: application/vnd.ms-excel; charset=utf-8');
+    header('Content-Type: text/html; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . str_replace(' ', '_', $title) . '.xls"');
     header('Pragma: no-cache');
+    echo '<?xml version="1.0" encoding="UTF-8"?>';
+    echo '<?mso-application progid="Excel.Sheet"?>';
     echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
-    echo '<head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Reporte</x:Name></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->';
+    echo '<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">';
+    echo '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Reporte</x:Name></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->';
     echo '<style>';
     echo 'table { border-collapse: collapse; font-family: "Segoe UI", Arial, sans-serif; font-size: 10pt; }';
     echo 'th { background: #091426; color: #fff; padding: 6px 8px; font-weight: bold; border: 1px solid #091426; text-align: left; }';
