@@ -27,7 +27,7 @@ $empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo
 <p class="font-body-md text-body-md text-on-surface-variant">Exportacion de datos y analisis.</p>
 </div>
 <div class="flex gap-2">
-<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=pdf&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>" class="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
+<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=pdf&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>" target="_blank" class="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
 <span class="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
 </a>
 <a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=excel&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>" class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
