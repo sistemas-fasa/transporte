@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS camiones (
     tara DECIMAL(10,2) DEFAULT NULL,
     tipo VARCHAR(50) DEFAULT 'camion',
     estado ENUM('activo', 'mantenimiento', 'fuera_de_servicio') DEFAULT 'activo',
+    por_hora TINYINT(1) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -67,6 +68,9 @@ CREATE TABLE IF NOT EXISTS km_recorrido (
     km_salida DECIMAL(12,2) DEFAULT 0,
     km_llegada DECIMAL(12,2) DEFAULT 0,
     km_recorridos DECIMAL(12,2) GENERATED ALWAYS AS (km_llegada - km_salida) STORED,
+    hs_salida DECIMAL(10,2) DEFAULT NULL,
+    hs_llegada DECIMAL(10,2) DEFAULT NULL,
+    hs_recorridas DECIMAL(10,2) GENERATED ALWAYS AS (hs_llegada - hs_salida) STORED,
     origen VARCHAR(255) DEFAULT NULL,
     destino VARCHAR(255) DEFAULT NULL,
     observaciones TEXT DEFAULT NULL,

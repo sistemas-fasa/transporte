@@ -101,6 +101,22 @@ try {
             echo json_encode($stmt->fetch() ?: []);
             break;
 
+        case 'viaje_detalle':
+            $id = (int)($_GET['id'] ?? 0);
+            $stmt = $db->prepare("SELECT h.*, c.patente, c.marca, c.modelo, c.por_hora,
+                ch.nombre as chofer_nombre, ch.apellido as chofer_apellido, ch.dni as chofer_dni,
+                ay.nombre as ayudante_nombre, ay.apellido as ayudante_apellido,
+                cx.patente as cachape_patente
+                FROM {$tripTable} h
+                JOIN camiones c ON h.id_camion = c.id_camion
+                JOIN choferes ch ON h.id_chofer = ch.id_chofer
+                LEFT JOIN choferes ay ON h.ayudante_id = ay.id_chofer
+                LEFT JOIN camiones cx ON h.cachape_id = cx.id_camion
+                WHERE h.id_hoja = ?");
+            $stmt->execute([$id]);
+            echo json_encode($stmt->fetch() ?: []);
+            break;
+
         case 'precargar_viaje':
             $id = (int)($_GET['id'] ?? 0);
             $stmtHr = $db->prepare("SELECT * FROM hoja_ruta WHERE id = ?");
@@ -206,7 +222,7 @@ try {
         case 'chofer_camiones':
             $idChofer = (int)($_GET['id_chofer'] ?? 0);
             if ($idChofer <= 0) { echo json_encode([]); break; }
-            $stmt = $db->prepare("SELECT c.id_camion, c.patente, c.marca, c.modelo, c.tara FROM asignaciones a JOIN camiones c ON a.id_camion = c.id_camion WHERE a.id_chofer = ? AND a.activa = 1 AND c.estado = 'activo' ORDER BY c.patente");
+            $stmt = $db->prepare("SELECT c.id_camion, c.patente, c.marca, c.modelo, c.tara, c.por_hora FROM asignaciones a JOIN camiones c ON a.id_camion = c.id_camion WHERE a.id_chofer = ? AND a.activa = 1 AND c.estado = 'activo' ORDER BY c.patente");
             $stmt->execute([$idChofer]);
             echo json_encode($stmt->fetchAll());
             break;

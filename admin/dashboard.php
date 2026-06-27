@@ -6,6 +6,9 @@ require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
 
 $db = getDB();
+
+
+
 $mes = date('m');
 $anio = date('Y');
 
@@ -72,6 +75,43 @@ $rendimientos = $rendimiento->fetchAll();
 // VTV proximas a vencer (3 meses)
 $vtvAlertas = $db->query("SELECT id_camion, patente, marca, modelo, vtv, DATEDIFF(vtv, CURDATE()) as dias_restantes FROM camiones WHERE vtv IS NOT NULL AND vtv <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) ORDER BY vtv ASC")->fetchAll();
 
+// KM por chofer (mes actual) separando viajes como chofer y como ayudante
+$kmChoferList = [];
+$kmSt = $db->prepare("SELECT ch.id_chofer, ch.nombre, ch.apellido, COALESCE(km.km,0) as km FROM choferes ch LEFT JOIN (SELECT id_chofer, SUM(km_recorridos) as km FROM km_recorrido WHERE MONTH(fecha)=? AND YEAR(fecha)=? GROUP BY id_chofer) km ON ch.id_chofer = km.id_chofer HAVING km > 0 ORDER BY km DESC");
+$kmSt->execute([$mes, $anio]);
+foreach ($kmSt->fetchAll() as $r) {
+    $kmChoferList[$r['id_chofer']] = ['id_chofer' => $r['id_chofer'], 'nombre' => $r['nombre'], 'apellido' => $r['apellido'], 'km_chofer' => $r['km'], 'km_ayudante' => 0];
+}
+try {
+    $kmSt2 = $db->prepare("SELECT ch.id_chofer, ch.nombre, ch.apellido, COALESCE(km.km,0) as km FROM choferes ch JOIN (SELECT ayudante_id, SUM(km_recorridos) as km FROM km_recorrido WHERE ayudante_id IS NOT NULL AND MONTH(fecha)=? AND YEAR(fecha)=? GROUP BY ayudante_id) km ON ch.id_chofer = km.ayudante_id");
+    $kmSt2->execute([$mes, $anio]);
+    foreach ($kmSt2->fetchAll() as $r) {
+        $id = $r['id_chofer'];
+        if (isset($kmChoferList[$id])) {
+            $kmChoferList[$id]['km_ayudante'] = $r['km'];
+        } else {
+            $kmChoferList[$id] = ['id_chofer' => $id, 'nombre' => $r['nombre'], 'apellido' => $r['apellido'], 'km_chofer' => 0, 'km_ayudante' => $r['km']];
+        }
+    }
+} catch (Exception $e) {}
+$kmChoferList = array_filter($kmChoferList, function($v) { return $v['km_chofer'] > 0; });
+uasort($kmChoferList, function($a, $b) { return ($b['km_chofer'] + $b['km_ayudante']) - ($a['km_chofer'] + $a['km_ayudante']); });
+
+// Litros por chofer (mes actual)
+try {
+    $litrosChofer = $db->prepare("
+        SELECT ch.id_chofer, ch.nombre, ch.apellido, COALESCE(co.litros,0) as total_litros
+        FROM choferes ch
+        LEFT JOIN (SELECT id_chofer, SUM(litros) as litros FROM combustible WHERE MONTH(fecha)=? AND YEAR(fecha)=? GROUP BY id_chofer) co ON ch.id_chofer = co.id_chofer
+        HAVING total_litros > 0
+        ORDER BY total_litros DESC
+    ");
+    $litrosChofer->execute([$mes, $anio]);
+    $litrosChoferList = $litrosChofer->fetchAll();
+} catch (Exception $e) {
+    $litrosChoferList = [];
+}
+
 // Proximo mantenimiento (camiones que ya pasaron o estan cerca del km/hs configurado)
 $mantenimientoAlertas = $db->query("
     SELECT c.id_camion, c.patente, c.marca, c.modelo,
@@ -112,7 +152,7 @@ $mantenimientoAlertas = $db->query("
 </div>
 <?php endif; ?>
 <?php if (hasPermission('kilometraje_ver')): ?>
-<div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
+<div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px] cursor-pointer" onclick="openKmModal()">
 <div class="flex items-center gap-3 text-secondary mb-3">
 <div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
 <span class="material-symbols-outlined text-primary">route</span>
@@ -124,14 +164,14 @@ $mantenimientoAlertas = $db->query("
 </div>
 <?php endif; ?>
 <?php if (hasPermission('combustible_ver')): ?>
-<div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px]">
+<div class="stat-card bg-surface-container-lowest border border-outline-variant rounded-xl p-5 flex flex-col justify-between min-h-[130px] cursor-pointer" onclick="openCombustibleModal()">
 <div class="flex items-center gap-3 text-secondary mb-3">
 <div class="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
 <span class="material-symbols-outlined text-primary">payments</span>
 </div>
 <span class="font-label-caps text-label-caps uppercase text-on-surface-variant">Gasto Combustible</span>
 </div>
-<div class="font-headline-lg text-headline-lg text-primary"><?= esAdminPleno() ? '$' . number_format($gastoCombData['total'], 2) : '-' ?></div>
+            <div class="font-headline-lg text-headline-lg text-primary overflow-x-auto whitespace-nowrap"><?= esAdminPleno() ? '$' . number_format($gastoCombData['total'], 2) : '-' ?></div>
 <div class="text-[11px] text-on-surface-variant font-medium mt-1.5">LITROS: <span class="text-green-600 font-bold"><?= number_format($litrosData['total'], 2) ?></span></div>
 </div>
 <?php endif; ?>
@@ -318,6 +358,96 @@ else { $c = 'gray'; $label = '-'; }
 </div>
 </div>
 </section>
+<!-- Modal Combustible por Chofer -->
+<div id="modalCombustible" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+<div class="bg-surface-container-lowest rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h3 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider">Litros por Chofer (Mes Actual)</h3>
+<button onclick="closeCombustibleModal()"><span class="material-symbols-outlined">close</span></button>
+</div>
+<div class="p-6">
+<?php if (empty($litrosChoferList)): ?>
+<p class="text-on-surface-variant text-center py-8">No hay registros de combustible este mes</p>
+<?php else: ?>
+<div class="space-y-3">
+<?php foreach ($litrosChoferList as $lc):
+$litrosPorcentaje = $litrosData['total'] > 0 ? round($lc['total_litros'] / $litrosData['total'] * 100, 1) : 0;
+?>
+<div class="flex items-center gap-4 p-3 bg-surface-container-high/30 rounded-lg">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary">local_gas_station</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-bold text-sm truncate"><?= htmlspecialchars($lc['apellido'] . ', ' . $lc['nombre']) ?></p>
+<div class="w-full bg-surface-container-high h-2 rounded-full mt-1.5 overflow-hidden">
+<div class="bg-primary h-full rounded-full transition-all" style="width: <?= $litrosPorcentaje ?>%"></div>
+</div>
+</div>
+<div class="text-right shrink-0">
+<p class="font-bold text-sm"><?= number_format($lc['total_litros'], 2) ?> L</p>
+<p class="text-[10px] text-on-surface-variant"><?= $litrosPorcentaje ?>%</p>
+</div>
+</div>
+<?php endforeach; ?>
+</div>
+<div class="mt-4 pt-4 border-t border-outline-variant flex justify-between text-sm">
+<span class="font-bold text-on-surface-variant">TOTAL</span>
+<span class="font-bold"><?= number_format($litrosData['total'], 2) ?> L</span>
+</div>
+<?php endif; ?>
+</div>
+</div>
+</div>
+
+<!-- Modal KM por Chofer -->
+<div id="modalKm" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+<div class="bg-surface-container-lowest rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h3 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider">KM por Chofer (Mes Actual)</h3>
+<button onclick="closeKmModal()"><span class="material-symbols-outlined">close</span></button>
+</div>
+<div class="p-6">
+<?php if (empty($kmChoferList)): ?>
+<p class="text-on-surface-variant text-center py-8">No hay registros de KM este mes</p>
+<?php else: ?>
+<div class="space-y-3">
+<?php foreach ($kmChoferList as $kc):
+$totalKm = $kc['km_chofer'] + $kc['km_ayudante'];
+$kmPorcentaje = $kmData['total'] > 0 ? round($totalKm / $kmData['total'] * 100, 1) : 0;
+?>
+<div class="flex items-center gap-4 p-3 bg-surface-container-high/30 rounded-lg">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary">person</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-bold text-sm truncate"><?= htmlspecialchars($kc['apellido'] . ', ' . $kc['nombre']) ?></p>
+<div class="flex gap-2 text-[10px] text-on-surface-variant mt-1">
+<span><?= number_format($kc['km_chofer'], 0) ?> km <span class="text-primary">(Chofer)</span></span>
+<?php if ($kc['km_ayudante'] > 0): ?>
+<span class="text-primary/60">|</span>
+<span><?= number_format($kc['km_ayudante'], 0) ?> km <span class="text-primary">(Ayudante)</span></span>
+<?php endif; ?>
+</div>
+<div class="w-full bg-surface-container-high h-2 rounded-full mt-1.5 overflow-hidden">
+<div class="bg-primary h-full rounded-full transition-all" style="width: <?= $kmPorcentaje ?>%"></div>
+</div>
+</div>
+<div class="text-right shrink-0">
+<p class="font-bold text-sm"><?= number_format($totalKm, 0) ?> km</p>
+<p class="text-[10px] text-on-surface-variant"><?= $kmPorcentaje ?>%</p>
+</div>
+</div>
+<?php endforeach; ?>
+</div>
+<div class="mt-4 pt-4 border-t border-outline-variant flex justify-between text-sm">
+<span class="font-bold text-on-surface-variant">TOTAL</span>
+<span class="font-bold"><?= number_format($kmData['total'], 0) ?> km</span>
+</div>
+<?php endif; ?>
+</div>
+</div>
+</div>
+
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -355,6 +485,13 @@ data: rendimientoData,
 options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'km/l', font: { weight: 'bold' } } } } }
 });
 <?php endif; ?>
+
+function openKmModal() { document.getElementById('modalKm').classList.remove('hidden'); }
+function closeKmModal() { document.getElementById('modalKm').classList.add('hidden'); }
+document.getElementById('modalKm')?.addEventListener('click', function(e) { if (e.target === this) closeKmModal(); });
+function openCombustibleModal() { document.getElementById('modalCombustible').classList.remove('hidden'); }
+function closeCombustibleModal() { document.getElementById('modalCombustible').classList.add('hidden'); }
+document.getElementById('modalCombustible')?.addEventListener('click', function(e) { if (e.target === this) closeCombustibleModal(); });
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

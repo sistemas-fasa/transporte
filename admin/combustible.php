@@ -101,6 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     try {
         $stmt = $db->prepare("UPDATE combustible SET fecha=?, id_chofer=?, id_camion=?, estacion_servicio=?, litros=?, precio_litro=?, kilometraje_al_cargar=? WHERE id_combustible=?");
         $stmt->execute([$fecha, $id_chofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $id]);
+        if ($km_carga > 0) {
+            $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+        }
         $mensaje = 'Carga actualizada exitosamente';
     } catch (Exception $e) {
         $error = 'Error: ' . $e->getMessage();
@@ -137,6 +140,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     try {
         $stmt = $db->prepare("INSERT INTO combustible (fecha, id_chofer, id_camion, estacion_servicio, litros, precio_litro, kilometraje_al_cargar, foto_ticket, id_usuario_registra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$fecha, $id_chofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $foto_ticket, getCurrentUserId()]);
+        if ($km_carga > 0) {
+            $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+        }
         $mensaje = 'Carga de combustible registrada exitosamente';
     } catch (Exception $e) {
         $error = 'Error: ' . $e->getMessage();
@@ -144,11 +150,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 if ($esRestringido && $idChoferRestriccion) {
-    $camionesList = $db->prepare("SELECT DISTINCT c.id_camion, c.patente, c.marca, c.modelo FROM camiones c LEFT JOIN asignaciones a ON c.id_camion = a.id_camion AND a.activa = 1 LEFT JOIN vehiculos_usuarios vu ON c.id_camion = vu.vehiculo_id WHERE c.estado='activo' AND (a.id_chofer = ? OR vu.usuario_id = ?) ORDER BY c.patente");
+    $camionesList = $db->prepare("SELECT DISTINCT c.id_camion, c.patente, c.marca, c.modelo, c.por_hora FROM camiones c LEFT JOIN asignaciones a ON c.id_camion = a.id_camion AND a.activa = 1 LEFT JOIN vehiculos_usuarios vu ON c.id_camion = vu.vehiculo_id WHERE c.estado='activo' AND (a.id_chofer = ? OR vu.usuario_id = ?) ORDER BY c.patente");
     $camionesList->execute([$idChoferRestriccion, getCurrentUserId()]);
     $camionesList = $camionesList->fetchAll();
 } else {
-    $camionesList = $db->query("SELECT id_camion, patente, marca, modelo FROM camiones WHERE estado='activo' ORDER BY patente")->fetchAll();
+    $camionesList = $db->query("SELECT id_camion, patente, marca, modelo, por_hora FROM camiones WHERE estado='activo' ORDER BY patente")->fetchAll();
 }
 $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM choferes WHERE estado='activo' ORDER BY apellido, nombre")->fetchAll();
 ?>
@@ -308,7 +314,7 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 <select name="id_camion" id="combCamion" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required>
 <option value="">Seleccionar...</option>
 <?php foreach ($camionesList as $ca): ?>
-<option value="<?= $ca['id_camion'] ?>"><?= htmlspecialchars($ca['patente'] . ' - ' . $ca['marca'] . ' ' . $ca['modelo']) ?></option>
+<option value="<?= $ca['id_camion'] ?>" data-por-hora="<?= $ca['por_hora'] ?>"><?= htmlspecialchars($ca['patente'] . ' - ' . $ca['marca'] . ' ' . $ca['modelo']) ?></option>
 <?php endforeach; ?>
 </select>
 </div>
@@ -338,8 +344,8 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 </div>
 </div>
 <div class="flex flex-col gap-1">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje</label>
-<input name="kilometraje" id="combKm" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+<label id="kmLabel" class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje</label>
+<input name="kilometraje" id="combKm" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Ej. 124500"/>
 </div>
 <div class="bg-surface-container-high p-3 rounded-lg flex justify-between items-center">
 <span class="font-label-caps text-label-caps uppercase font-bold">Total Calculado</span>
@@ -371,6 +377,8 @@ function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function resetModal() {
 document.getElementById('combAction').value = 'create';
 document.getElementById('combId').value = '';
+var elChofer = document.getElementById('combChofer'); if (elChofer) elChofer.value = '';
+document.getElementById('combCamion').value = '';
 document.getElementById('modLitros').value = '';
 document.getElementById('modPrecio').value = '';
 document.getElementById('combKm').value = '';
@@ -378,6 +386,33 @@ document.getElementById('modTotal').innerText = '$ 0.00';
 document.getElementById('modalCombustibleTitle').textContent = 'Nueva Carga de Combustible';
 document.getElementById('combFotoPreview').classList.add('hidden');
 document.getElementById('combScanBtn').disabled = true;
+updateCargaFields();
+}
+
+const combCamion = document.getElementById('combCamion');
+const kmLabel = document.getElementById('kmLabel');
+const combKm = document.getElementById('combKm');
+
+function updateCargaFields() {
+    if (!combCamion) return;
+    const opt = combCamion.options[combCamion.selectedIndex];
+    if (opt && opt.value) {
+        const porHora = opt.getAttribute('data-por-hora') == '1';
+        if (porHora) {
+            if (kmLabel) kmLabel.textContent = 'Horas Actuales (Horómetro)';
+            if (combKm) combKm.placeholder = 'Ej. 3450';
+        } else {
+            if (kmLabel) kmLabel.textContent = 'Kilometraje';
+            if (combKm) combKm.placeholder = 'Ej. 124500';
+        }
+    } else {
+        if (kmLabel) kmLabel.textContent = 'Kilometraje';
+        if (combKm) combKm.placeholder = 'Ej. 124500';
+    }
+}
+
+if (combCamion) {
+    combCamion.addEventListener('change', updateCargaFields);
 }
 
 // Admin OCR
@@ -453,6 +488,7 @@ document.getElementById('modLitros').value = data.litros;
 document.getElementById('modPrecio').value = data.precio_litro;
 document.getElementById('combKm').value = data.kilometraje_al_cargar || '';
 document.getElementById('modalCombustibleTitle').textContent = 'Editar Carga de Combustible';
+updateCargaFields();
 calcTotal();
 openModal('modalCombustible');
 }).catch(err => {

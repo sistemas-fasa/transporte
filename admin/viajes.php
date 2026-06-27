@@ -19,6 +19,9 @@ try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN tara DECIMAL(10,2) DEFAULT 
 try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN peso_carga DECIMAL(10,2) DEFAULT NULL AFTER tara"); } catch (Exception $e) {}
 try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN cachape_id INT DEFAULT NULL AFTER peso_carga"); } catch (Exception $e) {}
 try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN peso_total DECIMAL(12,2) DEFAULT NULL AFTER cachape_id"); } catch (Exception $e) {}
+try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN hs_salida DECIMAL(10,2) DEFAULT NULL AFTER km_recorridos"); } catch (Exception $e) {}
+try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN hs_llegada DECIMAL(10,2) DEFAULT NULL AFTER hs_salida"); } catch (Exception $e) {}
+try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN hs_recorridas DECIMAL(10,2) GENERATED ALWAYS AS (hs_llegada - hs_salida) STORED AFTER hs_llegada"); } catch (Exception $e) {}
 try { $db->exec("ALTER TABLE choferes ADD COLUMN id_empresa INT DEFAULT NULL AFTER id_chofer"); } catch (Exception $e) {}
 try { $db->exec("ALTER TABLE camiones ADD COLUMN id_empresa INT DEFAULT NULL AFTER id_camion"); } catch (Exception $e) {}
 
@@ -32,14 +35,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $viajeActual = $db->prepare("SELECT estado FROM km_recorrido WHERE id_hoja = ?");
     $viajeActual->execute([$id]);
     $estadoActual = $viajeActual->fetchColumn();
-    if ($estadoActual === 'aprobado' && esChofer()) {
-        $error = 'No puedes editar un viaje ya autorizado';
+    if ($estadoActual === 'aprobado') {
+        $error = 'No se puede editar un viaje ya autorizado. Revierta a pendiente primero.';
     } else {
         $id_chofer = (int)($_POST['id_chofer'] ?? 0);
         $id_camion = (int)($_POST['id_camion'] ?? 0);
         $fecha = $_POST['fecha'] ?? date('Y-m-d');
         $km_salida = (float)($_POST['km_salida'] ?? 0);
         $km_llegada = $_POST['km_llegada'] !== '' ? (float)$_POST['km_llegada'] : null;
+        $hs_salida = $_POST['hs_salida'] !== '' ? (float)$_POST['hs_salida'] : null;
+        $hs_llegada = $_POST['hs_llegada'] !== '' ? (float)$_POST['hs_llegada'] : null;
         $origen = trim($_POST['origen'] ?? '');
         if ($origen === '__OTRO__') { $origen = trim($_POST['origen_otro'] ?? ''); $db->prepare("INSERT IGNORE INTO localidad (localidad) VALUES (?)")->execute([$origen]); }
         $destino = trim($_POST['destino'] ?? '');
@@ -51,11 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $peso_carga = $_POST['peso_carga'] !== '' ? (float)$_POST['peso_carga'] : null;
         $cachape_id = $_POST['cachape_id'] !== '' ? (int)$_POST['cachape_id'] : null;
         $peso_total = $_POST['peso_total'] !== '' ? (float)$_POST['peso_total'] : null;
-        $estado = ($km_salida > 0 && $km_llegada !== null) ? 'cerrado' : 'abierto';
+        
+        $estado = (($km_salida > 0 && $km_llegada !== null) || ($hs_salida !== null && $hs_llegada !== null)) ? 'cerrado' : 'abierto';
 
         try {
-            $stmt = $db->prepare("UPDATE km_recorrido SET fecha=?, id_chofer=?, id_camion=?, km_salida=?, km_llegada=?, origen=?, destino=?, observaciones=?, estado=?, nro_hoja_ruta=?, ayudante_id=?, tara=?, peso_carga=?, cachape_id=?, peso_total=?, fecha_cierre=" . ($km_llegada !== null ? 'NOW()' : 'NULL') . " WHERE id_hoja=?");
-            $stmt->execute([$fecha, $id_chofer, $id_camion, $km_salida, $km_llegada, $origen, $destino, $observaciones, $estado, $nro_hoja_ruta ?: null, $ayudante_id, $tara, $peso_carga, $cachape_id, $peso_total, $id]);
+            $stmt = $db->prepare("UPDATE km_recorrido SET fecha=?, id_chofer=?, id_camion=?, km_salida=?, km_llegada=?, hs_salida=?, hs_llegada=?, origen=?, destino=?, observaciones=?, estado=?, nro_hoja_ruta=?, ayudante_id=?, tara=?, peso_carga=?, cachape_id=?, peso_total=?, fecha_cierre=" . (($km_llegada !== null || $hs_llegada !== null) ? 'NOW()' : 'NULL') . " WHERE id_hoja=?");
+            $stmt->execute([$fecha, $id_chofer, $id_camion, $km_salida, $km_llegada, $hs_salida, $hs_llegada, $origen, $destino, $observaciones, $estado, $nro_hoja_ruta ?: null, $ayudante_id, $tara, $peso_carga, $cachape_id, $peso_total, $id]);
             $_SESSION['flash'] = 'Viaje actualizado exitosamente';
             header('Location: viajes.php');
             exit;
@@ -67,6 +73,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
     $id = (int)($_POST['id_hoja'] ?? 0);
+    $viajeActual = $db->prepare("SELECT estado FROM km_recorrido WHERE id_hoja = ?");
+    $viajeActual->execute([$id]);
+    if ($viajeActual->fetchColumn() === 'aprobado') {
+        $error = 'No se puede eliminar un viaje ya autorizado. Revierta a pendiente primero.';
+    } else {
     try {
         $stmt = $db->prepare("DELETE FROM km_recorrido WHERE id_hoja = ?");
         $stmt->execute([$id]);
@@ -75,6 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         exit;
     } catch (Exception $e) {
         $error = 'Error al eliminar: ' . $e->getMessage();
+    }
     }
 }
 
@@ -130,6 +142,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $fecha = $_POST['fecha'] ?? date('Y-m-d');
     $km_salida = (float)($_POST['km_salida'] ?? 0);
     $km_llegada = $_POST['km_llegada'] !== '' ? (float)$_POST['km_llegada'] : null;
+    $hs_salida = $_POST['hs_salida'] !== '' ? (float)$_POST['hs_salida'] : null;
+    $hs_llegada = $_POST['hs_llegada'] !== '' ? (float)$_POST['hs_llegada'] : null;
     $origen = trim($_POST['origen'] ?? '');
     if ($origen === '__OTRO__') { $origen = trim($_POST['origen_otro'] ?? ''); $db->prepare("INSERT IGNORE INTO localidad (localidad) VALUES (?)")->execute([$origen]); }
     $destino = trim($_POST['destino'] ?? '');
@@ -138,14 +152,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $nro_hoja_ruta = trim($_POST['nro_hoja_ruta'] ?? '');
     $ayudante_id = $_POST['ayudante_id'] !== '' ? (int)$_POST['ayudante_id'] : null;
     $tara = $_POST['tara'] !== '' ? (float)$_POST['tara'] : null;
-        $peso_carga = $_POST['peso_carga'] !== '' ? (float)$_POST['peso_carga'] : null;
-        $cachape_id = $_POST['cachape_id'] !== '' ? (int)$_POST['cachape_id'] : null;
-        $peso_total = $_POST['peso_total'] !== '' ? (float)$_POST['peso_total'] : null;
-        $estado = ($km_salida > 0 && $km_llegada !== null) ? 'cerrado' : 'abierto';
+    $peso_carga = $_POST['peso_carga'] !== '' ? (float)$_POST['peso_carga'] : null;
+    $cachape_id = $_POST['cachape_id'] !== '' ? (int)$_POST['cachape_id'] : null;
+    $peso_total = $_POST['peso_total'] !== '' ? (float)$_POST['peso_total'] : null;
+    
+    $estado = (($km_salida > 0 && $km_llegada !== null) || ($hs_salida !== null && $hs_llegada !== null)) ? 'cerrado' : 'abierto';
 
-        try {
-            $stmt = $db->prepare("INSERT INTO km_recorrido (fecha, id_chofer, id_camion, km_salida, km_llegada, origen, destino, observaciones, estado, nro_hoja_ruta, ayudante_id, tara, peso_carga, cachape_id, peso_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$fecha, $id_chofer, $id_camion, $km_salida, $km_llegada, $origen, $destino, $observaciones, $estado, $nro_hoja_ruta ?: null, $ayudante_id, $tara, $peso_carga, $cachape_id, $peso_total]);
+    try {
+        $stmt = $db->prepare("INSERT INTO km_recorrido (fecha, id_chofer, id_camion, km_salida, km_llegada, hs_salida, hs_llegada, origen, destino, observaciones, estado, nro_hoja_ruta, ayudante_id, tara, peso_carga, cachape_id, peso_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$fecha, $id_chofer, $id_camion, $km_salida, $km_llegada, $hs_salida, $hs_llegada, $origen, $destino, $observaciones, $estado, $nro_hoja_ruta ?: null, $ayudante_id, $tara, $peso_carga, $cachape_id, $peso_total]);
         $_SESSION['flash'] = 'Viaje registrado exitosamente';
         header('Location: viajes.php');
         exit;
@@ -175,7 +190,7 @@ $tabParams = http_build_query(['fecha_desde' => $fecha_desde, 'fecha_hasta' => $
 $statsChofer = [];
 
 if ($vista === 'todos') {
-    $sql = "SELECT h.*, c.patente, ch.nombre, ch.apellido, ay.nombre as ayudante_nombre, ay.apellido as ayudante_apellido, cx.patente as cachape_patente, 'Chofer' as rol FROM km_recorrido h JOIN camiones c ON h.id_camion = c.id_camion JOIN choferes ch ON h.id_chofer = ch.id_chofer LEFT JOIN choferes ay ON h.ayudante_id = ay.id_chofer LEFT JOIN camiones cx ON h.cachape_id = cx.id_camion WHERE 1=1";
+    $sql = "SELECT h.*, c.patente, c.por_hora, ch.nombre, ch.apellido, ay.nombre as ayudante_nombre, ay.apellido as ayudante_apellido, cx.patente as cachape_patente, 'Chofer' as rol FROM km_recorrido h JOIN camiones c ON h.id_camion = c.id_camion JOIN choferes ch ON h.id_chofer = ch.id_chofer LEFT JOIN choferes ay ON h.ayudante_id = ay.id_chofer LEFT JOIN camiones cx ON h.cachape_id = cx.id_camion WHERE 1=1";
     $params = [];
     if ($buscar) {
         $sql .= " AND (c.patente LIKE ? OR ch.nombre LIKE ? OR ch.apellido LIKE ? OR h.origen LIKE ? OR h.destino LIKE ?)";
@@ -189,7 +204,7 @@ if ($vista === 'todos') {
     $registrosList = $registros->fetchAll();
 } else {
     // Vista Por Chofer: incluye viajes como chofer y como ayudante
-    $sql = "SELECT h.*, c.patente, ch.nombre, ch.apellido, ch.id_empresa, ay.nombre as ayudante_nombre, ay.apellido as ayudante_apellido, cx.patente as cachape_patente,
+    $sql = "SELECT h.*, c.patente, c.por_hora, ch.nombre, ch.apellido, ch.id_empresa, ay.nombre as ayudante_nombre, ay.apellido as ayudante_apellido, cx.patente as cachape_patente,
             CASE WHEN h.id_chofer = ? THEN 'Chofer' ELSE 'Ayudante' END as rol
             FROM km_recorrido h
             JOIN camiones c ON h.id_camion = c.id_camion
@@ -240,7 +255,7 @@ if ($countLoc['c'] == 0) {
 }
 $localidadesList = $db->query("SELECT id_localidad, localidad FROM localidad ORDER BY localidad ASC")->fetchAll();
 
-$camionesList = $db->query("SELECT id_camion, patente, marca, modelo FROM camiones WHERE estado='activo' ORDER BY patente")->fetchAll();
+$camionesList = $db->query("SELECT id_camion, patente, marca, modelo, por_hora FROM camiones WHERE estado='activo' ORDER BY patente")->fetchAll();
 $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM choferes WHERE estado='activo' ORDER BY apellido, nombre")->fetchAll();
 $cachapesList = $db->query("SELECT id_camion, patente, marca, modelo, tara FROM camiones WHERE estado='activo' AND tipo='cachape' ORDER BY patente")->fetchAll();
 
@@ -311,9 +326,19 @@ require_once __DIR__ . '/../includes/sidebar_admin.php';
 <button type="submit" class="bg-primary text-on-primary px-4 py-2 rounded-lg text-sm font-bold hover:opacity-90 transition-opacity">Filtrar</button>
 </form>
 
+<!-- Export Buttons -->
+<div class="flex justify-end gap-2 mb-4">
+<a href="<?= BASE_URL ?>/api/export.php?tipo=viajes&amp;vista=todos&amp;formato=pdf&amp;desde=<?= $fecha_desde ?>&amp;hasta=<?= $fecha_hasta ?>&amp;orden=<?= $orden ?>&amp;buscar=<?= urlencode($buscar) ?>" target="_blank" class="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-red-700 transition-colors">
+<span class="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
+</a>
+<a href="<?= BASE_URL ?>/api/export.php?tipo=viajes&amp;vista=todos&amp;formato=excel&amp;desde=<?= $fecha_desde ?>&amp;hasta=<?= $fecha_hasta ?>&amp;orden=<?= $orden ?>&amp;buscar=<?= urlencode($buscar) ?>" class="bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-green-800 transition-colors">
+<span class="material-symbols-outlined text-sm">table_chart</span> Excel
+</a>
+</div>
+
 <!-- Table Todos -->
-<div class="bg-surface-container-lowest border border-outline-variant rounded-xl">
-<table class="w-full table-fixed">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap overflow-x-auto">
+<table class="w-full table-fixed" style="min-width:850px">
 <thead class="bg-surface-container-high/50">
 <tr>
 <th class="w-[80px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">FECHA</th>
@@ -334,8 +359,8 @@ require_once __DIR__ . '/../includes/sidebar_admin.php';
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?>"><?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?></td>
 <td class="px-2 py-2 font-bold whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?><?php if (!empty($r['cachape_patente'])): ?> <span class="text-[9px] text-on-surface-variant font-normal">+<?= htmlspecialchars($r['cachape_patente']) ?></span><?php endif; ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['origen'] ?? '') . ' → ' . ($r['destino'] ?? '')) ?>"><?= htmlspecialchars(($r['origen'] ?? '-') . ' → ' . ($r['destino'] ?? '-')) ?></td>
-<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= number_format($r['km_salida'], 0) ?>&rarr;<?= $r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-' ?></td>
-<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-' ?></td>
+<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['por_hora'] ? (number_format($r['hs_salida'], 1) . '&rarr;' . ($r['hs_llegada'] !== null ? number_format($r['hs_llegada'], 1) : '-')) : (number_format($r['km_salida'], 0) . '&rarr;' . ($r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-')) ?></td>
+<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['por_hora'] ? ($r['hs_recorridas'] !== null ? number_format($r['hs_recorridas'], 1) . ' hs' : '-') : ($r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-') ?></td>
 <td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['tara'] !== null ? number_format($r['tara'], 0) : '' ?><?= $r['tara'] !== null && $r['peso_carga'] !== null ? '/' : '' ?><?= $r['peso_carga'] !== null ? number_format($r['peso_carga'], 0) : '' ?><?= $r['tara'] === null && $r['peso_carga'] === null ? '-' : '' ?></td>
 <td class="px-2 py-2 text-center whitespace-nowrap">
 <?php
@@ -362,12 +387,15 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <button class="px-1.5 py-1 bg-amber-500 text-white rounded text-[9px] font-bold hover:bg-amber-600" title="Revertir a Pendiente">R</button>
 </form>
 <?php endif; ?>
+<button onclick="verViaje(<?= $r['id_hoja'] ?>)" class="px-1.5 py-1 bg-sky-600 text-white rounded text-[9px] font-bold hover:bg-sky-700" title="Ver detalle">V</button>
+<?php if ($estado !== 'aprobado'): ?>
 <button onclick="editViaje(<?= $r['id_hoja'] ?>)" class="px-1.5 py-1 bg-secondary-container text-on-secondary-container rounded text-[9px] font-bold hover:opacity-80" title="Editar">E</button>
 <form method="POST" class="inline" onsubmit="return confirm('¿Eliminar este viaje?')">
 <input type="hidden" name="action" value="delete">
 <input type="hidden" name="id_hoja" value="<?= $r['id_hoja'] ?>">
 <button class="px-1.5 py-1 bg-red-50 text-red-600 rounded text-[9px] font-bold hover:bg-red-100" title="Borrar">X</button>
 </form>
+<?php endif; ?>
 </div>
 </td>
 </tr>
@@ -415,6 +443,14 @@ else $bCls = 'bg-amber-100 text-amber-800';
 </select>
 </div>
 <button type="submit" class="bg-primary text-on-primary px-4 py-2 rounded-lg text-sm font-bold hover:opacity-90 transition-opacity">Filtrar</button>
+<?php if ($id_chofer_filtro > 0): ?>
+<a href="<?= BASE_URL ?>/api/export.php?tipo=viajes&amp;vista=por_chofer&amp;formato=pdf&amp;desde=<?= $fecha_desde ?>&amp;hasta=<?= $fecha_hasta ?>&amp;orden=<?= $orden ?>&amp;id_chofer=<?= $id_chofer_filtro ?>&amp;id_empresa=<?= $id_empresa_filtro ?>" target="_blank" class="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-red-700 transition-colors">
+<span class="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
+</a>
+<a href="<?= BASE_URL ?>/api/export.php?tipo=viajes&amp;vista=por_chofer&amp;formato=excel&amp;desde=<?= $fecha_desde ?>&amp;hasta=<?= $fecha_hasta ?>&amp;orden=<?= $orden ?>&amp;id_chofer=<?= $id_chofer_filtro ?>&amp;id_empresa=<?= $id_empresa_filtro ?>" class="bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-green-800 transition-colors">
+<span class="material-symbols-outlined text-sm">table_chart</span> Excel
+</a>
+<?php endif; ?>
 </form>
 
 <?php if ($id_chofer_filtro > 0 && !empty($statsChofer)): ?>
@@ -440,8 +476,8 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <?php endif; ?>
 
 <!-- Table Por Chofer -->
-<div class="bg-surface-container-lowest border border-outline-variant rounded-xl">
-<table class="w-full table-fixed">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap overflow-x-auto">
+<table class="w-full table-fixed" style="min-width:900px">
 <thead class="bg-surface-container-high/50">
 <tr>
 <th class="w-[80px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">FECHA</th>
@@ -471,8 +507,8 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?>"><?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?></td>
 <td class="px-2 py-2 font-bold whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?><?php if (!empty($r['cachape_patente'])): ?> <span class="text-[9px] text-on-surface-variant font-normal">+<?= htmlspecialchars($r['cachape_patente']) ?></span><?php endif; ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['origen'] ?? '') . ' → ' . ($r['destino'] ?? '')) ?>"><?= htmlspecialchars(($r['origen'] ?? '-') . ' → ' . ($r['destino'] ?? '-')) ?></td>
-<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= number_format($r['km_salida'], 0) ?>&rarr;<?= $r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-' ?></td>
-<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-' ?></td>
+<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['por_hora'] ? (number_format($r['hs_salida'], 1) . '&rarr;' . ($r['hs_llegada'] !== null ? number_format($r['hs_llegada'], 1) : '-')) : (number_format($r['km_salida'], 0) . '&rarr;' . ($r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-')) ?></td>
+<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['por_hora'] ? ($r['hs_recorridas'] !== null ? number_format($r['hs_recorridas'], 1) . ' hs' : '-') : ($r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-') ?></td>
 <td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['tara'] !== null ? number_format($r['tara'], 0) : '' ?><?= $r['tara'] !== null && $r['peso_carga'] !== null ? '/' : '' ?><?= $r['peso_carga'] !== null ? number_format($r['peso_carga'], 0) : '' ?><?= $r['tara'] === null && $r['peso_carga'] === null ? '-' : '' ?></td>
 <td class="px-2 py-2 text-center whitespace-nowrap">
 <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase <?= $bCls ?>"><?= $estado ?></span>
@@ -493,12 +529,15 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <button class="px-1.5 py-1 bg-amber-500 text-white rounded text-[9px] font-bold hover:bg-amber-600" title="Revertir a Pendiente">R</button>
 </form>
 <?php endif; ?>
+<button onclick="verViaje(<?= $r['id_hoja'] ?>)" class="px-1.5 py-1 bg-sky-600 text-white rounded text-[9px] font-bold hover:bg-sky-700" title="Ver detalle">V</button>
+<?php if ($estado !== 'aprobado'): ?>
 <button onclick="editViaje(<?= $r['id_hoja'] ?>)" class="px-1.5 py-1 bg-secondary-container text-on-secondary-container rounded text-[9px] font-bold hover:opacity-80" title="Editar">E</button>
 <form method="POST" class="inline" onsubmit="return confirm('¿Eliminar este viaje?')">
 <input type="hidden" name="action" value="delete">
 <input type="hidden" name="id_hoja" value="<?= $r['id_hoja'] ?>">
 <button class="px-1.5 py-1 bg-red-50 text-red-600 rounded text-[9px] font-bold hover:bg-red-100" title="Borrar">X</button>
 </form>
+<?php endif; ?>
 </div>
 </td>
 </tr>
@@ -509,6 +548,24 @@ else $bCls = 'bg-amber-100 text-amber-800';
 
 <?php endif; ?>
 </main>
+
+<!-- Modal Ver Viaje -->
+<div id="modalVerViaje" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4" onclick="if(event.target===this)closeModal('modalVerViaje')">
+<div class="bg-surface-container-lowest rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto modal-body shadow-2xl animate-fadeIn">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h3 class="font-headline-sm text-headline-sm text-primary">Detalle del Viaje</h3>
+<button onclick="closeModal('modalVerViaje')"><span class="material-symbols-outlined">close</span></button>
+</div>
+<div class="p-6 space-y-4" id="verViajeContent">
+<div class="flex justify-center py-8">
+<span class="material-symbols-outlined animate-spin text-outline">progress_activity</span>
+</div>
+</div>
+<div class="p-6 pt-0">
+<button type="button" onclick="closeModal('modalVerViaje')" class="w-full border border-outline text-primary py-2 rounded-lg font-bold hover:bg-surface-container-high transition-colors">Cerrar</button>
+</div>
+</div>
+</div>
 
 <!-- Modal Nuevo/Editar Viaje -->
 <div id="modalViaje" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
@@ -567,7 +624,7 @@ else $bCls = 'bg-amber-100 text-amber-800';
 </select>
 </div>
 </div>
-<div class="grid grid-cols-2 gap-4">
+<div class="grid grid-cols-2 gap-4" id="kmFields">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Salida</label>
 <input name="km_salida" id="viajeKmSalida" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
@@ -575,6 +632,16 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Llegada</label>
 <input name="km_llegada" id="viajeKmLlegada" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4 hidden" id="hsFields">
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Salida (Horas)</label>
+<input name="hs_salida" id="viajeHsSalida" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Llegada (Horas)</label>
+<input name="hs_llegada" id="viajeHsLlegada" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
 </div>
 </div>
 <div class="grid grid-cols-3 gap-4">
@@ -592,7 +659,7 @@ else $bCls = 'bg-amber-100 text-amber-800';
 </div>
 </div>
 <div class="bg-surface-container-high p-3 rounded-lg flex justify-between items-center">
-<span class="font-label-caps text-label-caps uppercase font-bold">KM Recorridos</span>
+<span class="font-label-caps text-label-caps uppercase font-bold" id="viajeCalculadoLabel">KM Recorridos</span>
 <span class="font-headline-md text-headline-md text-primary font-bold font-data-mono" id="viajeKmRec">0 km</span>
 </div>
 <div class="grid grid-cols-2 gap-4">
@@ -634,6 +701,12 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <script>
 var formSubmitted = false;
 
+function htmlspecialchars(str) {
+var div = document.createElement('div');
+div.appendChild(document.createTextNode(str || ''));
+return div.innerHTML;
+}
+
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 
@@ -657,6 +730,8 @@ document.getElementById('viajePesoCarga').value = '';
 document.getElementById('viajePesoTotal').value = '';
 document.getElementById('viajeKmSalida').value = '';
 document.getElementById('viajeKmLlegada').value = '';
+document.getElementById('viajeHsSalida').value = '';
+document.getElementById('viajeHsLlegada').value = '';
 document.getElementById('viajeOrigen').value = 'PUERTO RICO';
 if (document.getElementById('viajeOrigen').value !== 'PUERTO RICO') {
     document.getElementById('viajeOrigen').value = '__OTRO__';
@@ -673,6 +748,7 @@ document.getElementById('viajeObs').value = '';
 document.getElementById('viajeKmRec').innerText = '0 km';
 document.getElementById('modalViajeTitle').textContent = 'Nuevo Viaje';
 document.getElementById('viajeFecha').value = new Date().toISOString().split('T')[0];
+toggleFieldsByCamion();
 }
 
 function toggleOtro(inputId, otroId) {
@@ -683,6 +759,75 @@ else { otro.classList.add('hidden'); otro.value = ''; }
 }
 document.getElementById('viajeOrigen').addEventListener('change', function(){ toggleOtro('viajeOrigen','viajeOrigenOtro'); });
 document.getElementById('viajeDestino').addEventListener('change', function(){ toggleOtro('viajeDestino','viajeDestinoOtro'); });
+
+function toggleFieldsByCamion() {
+    var camionSel = document.getElementById('viajeCamion');
+    if (!camionSel) return;
+    var opt = camionSel.options[camionSel.selectedIndex];
+    var porHora = opt && opt.getAttribute('data-por-hora') == '1';
+    
+    var kmFields = document.getElementById('kmFields');
+    var hsFields = document.getElementById('hsFields');
+    var kmSalida = document.getElementById('viajeKmSalida');
+    var hsSalida = document.getElementById('viajeHsSalida');
+    var calcLabel = document.getElementById('viajeCalculadoLabel');
+    
+    if (porHora) {
+        kmFields.classList.add('hidden');
+        hsFields.classList.remove('hidden');
+        kmSalida.removeAttribute('required');
+        hsSalida.setAttribute('required', 'required');
+        calcLabel.innerText = 'Horas Recorridas';
+    } else {
+        kmFields.classList.remove('hidden');
+        hsFields.classList.add('hidden');
+        hsSalida.removeAttribute('required');
+        kmSalida.setAttribute('required', 'required');
+        calcLabel.innerText = 'KM Recorridos';
+    }
+    calcKmRec();
+}
+
+function verViaje(id) {
+function valor(v) { return (v !== null && v !== undefined && v !== '') ? v : '-'; }
+function siHay(v, sufijo) { return (v !== null && v !== undefined && v !== '') ? v.toLocaleString('es-ES') + ' ' + sufijo : '-'; }
+fetch('<?= BASE_URL ?>/api/get_data.php?action=viaje_detalle&id=' + id)
+.then(r => r.json()).then(data => {
+if (!data || !data.id_hoja) {
+alert('Error: No se pudieron obtener los datos');
+return;
+}
+var html = '<div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Hoja de Ruta</span><span class="font-bold">' + valor(data.nro_hoja_ruta) + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Fecha</span><span>' + (data.fecha ? data.fecha.split(' ')[0].split('-').reverse().join('/') : '-') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Chofer</span><span>' + htmlspecialchars(valor(data.chofer_apellido + ', ' + data.chofer_nombre)) + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Ayudante</span><span>' + (data.ayudante_nombre ? htmlspecialchars(data.ayudante_apellido + ', ' + data.ayudante_nombre) : '-') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Camion</span><span class="font-bold">' + valor(data.patente) + ' ' + (data.marca || '') + ' ' + (data.modelo || '') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Cachapé</span><span>' + (data.cachape_patente || '-') + '</span></div>';
+if (data.por_hora) {
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">HS Salida</span><span class="font-data-mono">' + siHay(data.hs_salida, 'hs') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">HS Llegada</span><span class="font-data-mono">' + (data.hs_llegada !== null && data.hs_llegada !== undefined && data.hs_llegada !== '' ? Number(data.hs_llegada).toLocaleString('es-ES', {minimumFractionDigits:1,maximumFractionDigits:1}) + ' hs' : '-') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">HS Recorridas</span><span class="font-data-mono font-bold text-primary">' + siHay(data.hs_recorridas, 'hs') + '</span></div>';
+} else {
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">KM Salida</span><span class="font-data-mono">' + siHay(data.km_salida, 'km') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">KM Llegada</span><span class="font-data-mono">' + (data.km_llegada !== null && data.km_llegada !== undefined && data.km_llegada !== '' ? Number(data.km_llegada).toLocaleString('es-ES') + ' km' : '-') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">KM Recorridos</span><span class="font-data-mono font-bold text-primary">' + siHay(data.km_recorridos, 'km') + '</span></div>';
+}
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Tara</span><span class="font-data-mono">' + siHay(data.tara, 'kg') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Peso Carga</span><span class="font-data-mono">' + siHay(data.peso_carga, 'kg') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Peso Total</span><span class="font-data-mono font-bold text-primary">' + siHay(data.peso_total, 'kg') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Origen</span><span>' + valor(data.origen) + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Destino</span><span>' + valor(data.destino) + '</span></div>';
+html += '<div class="col-span-2"><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Observaciones</span><span class="italic">' + (data.observaciones ? htmlspecialchars(data.observaciones) : 'Sin observaciones') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Estado</span><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ' + (data.estado === 'aprobado' ? 'bg-green-100 text-green-800' : data.estado === 'cerrado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800') + '">' + valor(data.estado) + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Fecha Cierre</span><span>' + (data.fecha_cierre ? data.fecha_cierre.split('.')[0] : '-') + '</span></div>';
+html += '</div>';
+document.getElementById('verViajeContent').innerHTML = html;
+openModal('modalVerViaje');
+}).catch(err => {
+alert('Error al cargar datos: ' + err.message);
+});
+}
 
 function editViaje(id) {
 fetch('<?= BASE_URL ?>/api/get_data.php?action=viaje&id=' + id)
@@ -700,6 +845,8 @@ document.getElementById('viajeFecha').value = data.fecha;
 cargarCamionesChofer(data.id_chofer, data.id_camion);
 document.getElementById('viajeKmSalida').value = data.km_salida;
 document.getElementById('viajeKmLlegada').value = data.km_llegada || '';
+document.getElementById('viajeHsSalida').value = data.hs_salida || '';
+document.getElementById('viajeHsLlegada').value = data.hs_llegada || '';
 document.getElementById('viajeCachape').value = data.cachape_id || '';
 document.getElementById('viajeTara').value = data.tara || '';
 document.getElementById('viajePesoCarga').value = data.peso_carga || '';
@@ -720,7 +867,7 @@ document.getElementById('viajeDestinoOtro').classList.remove('hidden');
 }
 document.getElementById('viajeObs').value = data.observaciones || '';
 document.getElementById('modalViajeTitle').textContent = 'Editar Viaje';
-calcKmRec();
+// Note: calcKmRec will be called inside toggleFieldsByCamion once the camion options populate
 openModal('modalViaje');
 }).catch(err => {
 alert('Error al cargar datos: ' + err.message);
@@ -739,10 +886,14 @@ var opt = document.createElement('option');
 opt.value = c.id_camion;
 opt.textContent = c.patente + ' - ' + c.marca + ' ' + c.modelo;
 opt.setAttribute('data-tara', c.tara || 0);
+opt.setAttribute('data-por-hora', c.por_hora || 0);
 sel.appendChild(opt);
 });
 sel.disabled = false;
-if (selectedId) sel.value = selectedId;
+if (selectedId) {
+    sel.value = selectedId;
+    toggleFieldsByCamion();
+}
 }).catch(function() {
 sel.innerHTML = '<option value="">Error al cargar</option>';
 sel.disabled = false;
@@ -774,20 +925,36 @@ var tara = parseFloat(document.getElementById('viajeTara').value) || 0;
 var peso = parseFloat(document.getElementById('viajePesoCarga').value) || 0;
 document.getElementById('viajePesoTotal').value = (tara + peso).toFixed(2);
 }
-document.getElementById('viajeCamion').addEventListener('change', calcTaraTotal);
-
-
+document.getElementById('viajeCamion').addEventListener('change', function() {
+    calcTaraTotal();
+    toggleFieldsByCamion();
+});
 
 const kmSalida = document.getElementById('viajeKmSalida');
 const kmLlegada = document.getElementById('viajeKmLlegada');
+const hsSalida = document.getElementById('viajeHsSalida');
+const hsLlegada = document.getElementById('viajeHsLlegada');
 const kmRecDisplay = document.getElementById('viajeKmRec');
+
 function calcKmRec() {
-const s = parseFloat(kmSalida.value) || 0;
-const l = parseFloat(kmLlegada.value) || 0;
-kmRecDisplay.innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' km';
+    var camionSel = document.getElementById('viajeCamion');
+    var opt = camionSel.options[camionSel.selectedIndex];
+    var porHora = opt && opt.getAttribute('data-por-hora') == '1';
+    
+    if (porHora) {
+        const s = parseFloat(hsSalida.value) || 0;
+        const l = parseFloat(hsLlegada.value) || 0;
+        kmRecDisplay.innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' hs';
+    } else {
+        const s = parseFloat(kmSalida.value) || 0;
+        const l = parseFloat(kmLlegada.value) || 0;
+        kmRecDisplay.innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' km';
+    }
 }
 kmSalida.addEventListener('input', calcKmRec);
 kmLlegada.addEventListener('input', calcKmRec);
+hsSalida.addEventListener('input', calcKmRec);
+hsLlegada.addEventListener('input', calcKmRec);
 
 function filterTable() {
 const search = document.getElementById('searchInput').value.toLowerCase();

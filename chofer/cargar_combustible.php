@@ -94,6 +94,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $db->prepare("INSERT INTO combustible (fecha, id_chofer, id_camion, estacion_servicio, litros, precio_litro, kilometraje_al_cargar, foto_ticket, id_usuario_registra) VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$idChofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $foto_ticket, $userId]);
+            if ($km_carga > 0) {
+                $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+            }
             registrarAuditoria($userId, 'create', 'combustible', $db->lastInsertId(), "Carga de $litros L para camion ID $id_camion");
             header('Location: ' . BASE_URL . '/chofer/panel.php?ok=carga_combustible');
             exit;
@@ -143,7 +146,7 @@ if ($idChofer) {
 <select name="id_camion" id="camionSelect" class="w-full border border-outline-variant rounded p-3 font-body-md focus:ring-2 focus:ring-primary focus:outline-none" required>
 <option value="">Seleccionar camion...</option>
 <?php foreach ($camionesAsignados as $ca): ?>
-<option value="<?= $ca['id_camion'] ?>" data-km="<?= $ultimoKmPorCamion[$ca['id_camion']] ?? $ca['kilometraje_actual'] ?>"><?= htmlspecialchars($ca['patente'] . ' - ' . $ca['marca'] . ' ' . $ca['modelo']) ?></option>
+<option value="<?= $ca['id_camion'] ?>" data-km="<?= $ultimoKmPorCamion[$ca['id_camion']] ?? $ca['kilometraje_actual'] ?>" data-por-hora="<?= $ca['por_hora'] ?>"><?= htmlspecialchars($ca['patente'] . ' - ' . $ca['marca'] . ' ' . $ca['modelo']) ?></option>
 <?php endforeach; ?>
 </select>
 <div id="camionInfo" class="bg-primary-container/10 p-4 rounded-lg <?= count($camionesAsignados) === 1 ? '' : 'hidden' ?>">
@@ -181,10 +184,10 @@ if ($idChofer) {
 </div>
 
 <div class="flex flex-col gap-2">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje Actual</label>
+<label id="kmLabel" class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje Actual</label>
 <div class="relative">
-<input name="kilometraje" type="number" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Ej. 124500"/>
-<span class="material-symbols-outlined absolute right-3 top-3 text-outline">speed</span>
+<input name="kilometraje" id="kmInput" type="number" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Ej. 124500"/>
+<span id="kmIcon" class="material-symbols-outlined absolute right-3 top-3 text-outline">speed</span>
 </div>
 </div>
 
@@ -269,17 +272,37 @@ if ($idChofer) {
 const camionSelect = document.getElementById('camionSelect');
 const camionInfo = document.getElementById('camionInfo');
 const camionInfoText = document.getElementById('camionInfoText');
-if (camionSelect) {
-camionSelect.addEventListener('change', function() {
-const opt = this.options[this.selectedIndex];
-if (opt && opt.value) {
-const km = opt.getAttribute('data-km') || '0';
-camionInfoText.textContent = 'Vehiculo: ' + opt.text + ' - KM Actual: ' + Number(km).toLocaleString('es-ES');
-camionInfo.classList.remove('hidden');
-} else {
-camionInfo.classList.add('hidden');
+const kmLabel = document.getElementById('kmLabel');
+const kmInput = document.getElementById('kmInput');
+const kmIcon = document.getElementById('kmIcon');
+
+function updateCargaFields() {
+    if (!camionSelect) return;
+    const opt = camionSelect.options[camionSelect.selectedIndex];
+    if (opt && opt.value) {
+        const km = opt.getAttribute('data-km') || '0';
+        const porHora = opt.getAttribute('data-por-hora') == '1';
+        
+        if (porHora) {
+            camionInfoText.textContent = 'Vehiculo: ' + opt.text + ' - HS Actual: ' + Number(km).toLocaleString('es-ES');
+            if (kmLabel) kmLabel.textContent = 'Horas Actuales (Horómetro)';
+            if (kmInput) kmInput.placeholder = 'Ej. 3450';
+            if (kmIcon) kmIcon.textContent = 'schedule';
+        } else {
+            camionInfoText.textContent = 'Vehiculo: ' + opt.text + ' - KM Actual: ' + Number(km).toLocaleString('es-ES');
+            if (kmLabel) kmLabel.textContent = 'Kilometraje Actual';
+            if (kmInput) kmInput.placeholder = 'Ej. 124500';
+            if (kmIcon) kmIcon.textContent = 'speed';
+        }
+        camionInfo.classList.remove('hidden');
+    } else {
+        camionInfo.classList.add('hidden');
+    }
 }
-});
+
+if (camionSelect) {
+    camionSelect.addEventListener('change', updateCargaFields);
+    updateCargaFields();
 }
 
 // Upload

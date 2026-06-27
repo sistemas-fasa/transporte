@@ -11,7 +11,7 @@ $mensaje = '';
 $error = '';
 
 // Asegurar que las columnas existan por si no corrió la sincronización
-foreach (['vtv DATE NULL', 'tara DECIMAL(10,2) NULL', 'proximo_mantenimiento_km DECIMAL(12,2) NULL', 'proximo_mantenimiento_hs DECIMAL(10,2) NULL', "tipo VARCHAR(50) DEFAULT 'camion'", "foto VARCHAR(255) NULL", "empresa_id INT DEFAULT NULL"] as $col) {
+foreach (['vtv DATE NULL', 'tara DECIMAL(10,2) NULL', 'proximo_mantenimiento_km DECIMAL(12,2) NULL', 'proximo_mantenimiento_hs DECIMAL(10,2) NULL', "tipo VARCHAR(50) DEFAULT 'camion'", "foto VARCHAR(255) NULL", "empresa_id INT DEFAULT NULL", "por_hora TINYINT(1) DEFAULT 0"] as $col) {
     try { $db->exec("ALTER TABLE camiones ADD COLUMN $col"); } catch (Exception $e) {}
 }
 
@@ -74,11 +74,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $estado = $_POST['estado'] ?? 'activo';
         $tipo = $_POST['tipo'] ?? 'camion';
         $empresa_id = !empty($_POST['empresa_id']) ? (int)$_POST['empresa_id'] : null;
+        $por_hora = isset($_POST['por_hora']) ? 1 : 0;
 
         if ($action === 'create') {
             try {
-                $stmt = $db->prepare("INSERT INTO camiones (patente, marca, modelo, anio, kilometraje_actual, capacidad_tanque, vtv, tara, proximo_mantenimiento_km, proximo_mantenimiento_hs, estado, tipo, empresa_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id]);
+                $stmt = $db->prepare("INSERT INTO camiones (patente, marca, modelo, anio, kilometraje_actual, capacidad_tanque, vtv, tara, proximo_mantenimiento_km, proximo_mantenimiento_hs, estado, tipo, empresa_id, por_hora) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $por_hora]);
                 $idCamion = $db->lastInsertId();
                 registrarAuditoria(getCurrentUserId(), 'create', 'camiones', $idCamion, "Creo vehiculo $patente");
                 $mensaje = 'Vehiculo creado exitosamente';
@@ -88,8 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $id = (int)($_POST['id_camion'] ?? 0);
             try {
-                $stmt = $db->prepare("UPDATE camiones SET patente=?, marca=?, modelo=?, anio=?, kilometraje_actual=?, capacidad_tanque=?, vtv=?, tara=?, proximo_mantenimiento_km=?, proximo_mantenimiento_hs=?, estado=?, tipo=?, empresa_id=? WHERE id_camion=?");
-                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $id]);
+                $stmt = $db->prepare("UPDATE camiones SET patente=?, marca=?, modelo=?, anio=?, kilometraje_actual=?, capacidad_tanque=?, vtv=?, tara=?, proximo_mantenimiento_km=?, proximo_mantenimiento_hs=?, estado=?, tipo=?, empresa_id=?, por_hora=? WHERE id_camion=?");
+                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $por_hora, $id]);
                 registrarAuditoria(getCurrentUserId(), 'update', 'camiones', $id, "Actualizo vehiculo $patente");
                 $mensaje = 'Vehiculo actualizado exitosamente';
             } catch (Exception $e) {
@@ -119,11 +120,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $buscar = $_GET['buscar'] ?? '';
 $filtro_estado = $_GET['estado'] ?? '';
 
-$sql = "SELECT c.*, e.nombre as empresa_nombre, (SELECT COUNT(*) FROM asignaciones WHERE id_camion = c.id_camion AND activa = 1) as asignado FROM camiones c LEFT JOIN empresas e ON c.empresa_id = e.id_empresa WHERE 1=1";
+$sql = "SELECT c.*, e.nombre as empresa_nombre, (SELECT COUNT(*) FROM asignaciones WHERE id_camion = c.id_camion AND activa = 1) as asignado,
+    (SELECT GROUP_CONCAT(CONCAT(ch.apellido, ', ', ch.nombre) SEPARATOR ' | ') FROM asignaciones a JOIN choferes ch ON a.id_chofer = ch.id_chofer WHERE a.id_camion = c.id_camion AND a.activa = 1) as choferes_asignados
+    FROM camiones c LEFT JOIN empresas e ON c.empresa_id = e.id_empresa WHERE 1=1";
 $params = [];
 if ($buscar) {
-    $sql .= " AND (c.patente LIKE ? OR c.marca LIKE ? OR c.modelo LIKE ?)";
-    $params[] = "%$buscar%"; $params[] = "%$buscar%"; $params[] = "%$buscar%";
+    $sql .= " AND (c.patente LIKE ? OR c.marca LIKE ? OR c.modelo LIKE ? OR c.id_camion IN (SELECT a.id_camion FROM asignaciones a JOIN choferes ch ON a.id_chofer = ch.id_chofer WHERE a.activa = 1 AND CONCAT(ch.nombre, ' ', ch.apellido, ' ', ch.apellido, ', ', ch.nombre, ' ', ch.dni) LIKE ?))";
+    $params[] = "%$buscar%"; $params[] = "%$buscar%"; $params[] = "%$buscar%"; $params[] = "%$buscar%";
 }
 if ($filtro_estado) {
     $sql .= " AND c.estado = ?";
@@ -154,7 +157,7 @@ $empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo
 <div class="bg-surface-container-lowest border border-outline-variant p-4 rounded-xl flex flex-col md:flex-row items-center gap-4 mb-8 card-modern">
 <div class="relative w-full md:flex-1">
 <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
-<input id="searchInput" onkeyup="filterTable()" class="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary" placeholder="Buscar por patente, marca o modelo..." type="text"/>
+<input id="searchInput" onkeyup="filterTable()" class="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary" placeholder="Buscar por patente, marca, modelo o chofer..." type="text"/>
 </div>
 <div class="flex items-center gap-2 w-full md:w-auto">
 <select id="estadoFilter" onchange="filterTable()" class="flex-1 md:w-48 px-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary">
@@ -187,7 +190,7 @@ if ($vtvDate) {
     $vtvColor = 'gray'; $vtvLabel = 'SIN VTV';
 }
 ?>
-<div class="camion-card bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden hover:border-primary transition-all" data-search="<?= strtolower(htmlspecialchars($camion['patente'] . ' ' . $camion['marca'] . ' ' . $camion['modelo'] . ' ' . ($tipoLabels[$camion['tipo'] ?? 'camion'] ?? ''))) ?>" data-estado="<?= $camion['estado'] ?>">
+<div class="camion-card bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden hover:border-primary transition-all" data-search="<?= strtolower(htmlspecialchars($camion['patente'] . ' ' . $camion['marca'] . ' ' . $camion['modelo'] . ' ' . ($tipoLabels[$camion['tipo'] ?? 'camion'] ?? '') . ' ' . ($camion['choferes_asignados'] ?? ''))) ?>" data-estado="<?= $camion['estado'] ?>">
 <?php
 $tipoIconos = [
     'camion' => 'local_shipping',
@@ -248,6 +251,7 @@ $tipoLabel = $tipoLabels[$tipo] ?? $tipo;
 <h3 class="font-headline-sm text-headline-sm text-primary"><?= htmlspecialchars($camion['marca']) ?> <?= htmlspecialchars($camion['modelo']) ?></h3>
 <p class="font-body-md text-on-surface-variant">Patente: <span class="font-bold text-primary"><?= htmlspecialchars($camion['patente']) ?></span></p>
 <?php if ($camion['empresa_nombre']): ?><p class="text-xs text-on-surface-variant mt-1"><span class="material-symbols-outlined text-[14px] align-text-bottom">business</span> <?= htmlspecialchars($camion['empresa_nombre']) ?></p><?php endif; ?>
+<?php if ($camion['choferes_asignados']): ?><p class="text-xs text-on-surface-variant mt-1"><span class="material-symbols-outlined text-[14px] align-text-bottom">person</span> <?= htmlspecialchars($camion['choferes_asignados']) ?></p><?php endif; ?>
 </div>
 <div class="flex flex-col items-end gap-1">
 <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase border border-<?= $est['color'] ?>-200 bg-<?= $est['color'] ?>-100 text-<?= $est['color'] ?>-800"><?= $est['text'] ?></span>
@@ -256,8 +260,8 @@ $tipoLabel = $tipoLabels[$tipo] ?? $tipo;
 </div>
 <div class="grid grid-cols-3 gap-2 mb-6">
 <div class="bg-surface-container-low p-3 rounded-lg">
-<p class="text-[10px] font-label-caps text-on-surface-variant uppercase">Kilometraje</p>
-<p class="font-data-mono text-primary text-sm"><?= number_format($camion['kilometraje_actual'], 0) ?> KM</p>
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase"><?= $camion['por_hora'] ? 'Horas' : 'Kilometraje' ?></p>
+<p class="font-data-mono text-primary text-sm"><?= number_format($camion['kilometraje_actual'], 0) ?> <?= $camion['por_hora'] ? 'HS' : 'KM' ?></p>
 </div>
 <div class="bg-surface-container-low p-3 rounded-lg">
 <p class="text-[10px] font-label-caps text-on-surface-variant uppercase">Tanque</p>
@@ -343,7 +347,7 @@ Historial
 </div>
 <div class="grid grid-cols-2 gap-4">
 <div class="flex flex-col gap-1">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje</label>
+<label id="camkmLabel" class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje</label>
 <input name="kilometraje_actual" type="number" step="0.01" id="camkm" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none"/>
 </div>
 <div class="flex flex-col gap-1">
@@ -402,6 +406,10 @@ Historial
 <option value="mantenimiento">En Mantenimiento</option>
 <option value="fuera_de_servicio">Fuera de Servicio</option>
 </select>
+</div>
+<div class="flex items-center gap-2 pt-2">
+<input type="checkbox" name="por_hora" id="camporhora" value="1" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5 bg-surface-container-low"/>
+<label for="camporhora" class="font-label-caps text-label-caps text-on-surface-variant uppercase cursor-pointer">Control por Horas (Horómetro)</label>
 </div>
 <div class="flex gap-3 pt-4">
 <button type="button" onclick="closeModal('modalCamion')" class="flex-1 border border-outline text-primary py-2.5 rounded-xl font-bold hover:bg-surface-container-low transition-all">Cancelar</button>
@@ -474,11 +482,31 @@ document.getElementById('camproxhs').value = data.proximo_mantenimiento_hs || ''
 document.getElementById('camtipo').value = data.tipo || 'camion';
 document.getElementById('camepresa').value = data.empresa_id || '';
 document.getElementById('camestado').value = data.estado;
+document.getElementById('camporhora').checked = parseInt(data.por_hora) === 1;
+updateCamionFields();
 document.getElementById('modalCamionTitle').textContent = 'Editar Vehiculo';
 openModal('modalCamion');
 }).catch(err => {
 alert('Error al cargar datos del vehiculo: ' + err.message);
 });
+}
+
+const camporhora = document.getElementById('camporhora');
+const camkmLabel = document.getElementById('camkmLabel');
+const camkm = document.getElementById('camkm');
+
+function updateCamionFields() {
+    if (camporhora && camporhora.checked) {
+        if (camkmLabel) camkmLabel.textContent = 'Horas Actuales (Horómetro)';
+        if (camkm) camkm.placeholder = 'Ej. 3450';
+    } else {
+        if (camkmLabel) camkmLabel.textContent = 'Kilometraje';
+        if (camkm) camkm.placeholder = 'Ej. 124500';
+    }
+}
+
+if (camporhora) {
+    camporhora.addEventListener('change', updateCamionFields);
 }
 
 function resetModalCamion() {
@@ -497,6 +525,8 @@ document.getElementById('camproxhs').value = '';
 document.getElementById('camtipo').value = 'camion';
 document.getElementById('camepresa').value = '';
 document.getElementById('camestado').value = 'activo';
+document.getElementById('camporhora').checked = false;
+updateCamionFields();
 document.getElementById('modalCamionTitle').textContent = 'Nuevo Vehiculo';
 }
 

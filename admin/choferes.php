@@ -148,56 +148,54 @@ $usuariosDisponibles = $db->query("SELECT u.id_usuario, u.username, u.nombre, u.
 </div>
 
 <!-- Table -->
-<div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap">
-<table class="w-full">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap overflow-x-auto">
+<table class="w-full table-fixed">
 <thead class="bg-surface-container-high/50">
 <tr>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">ID</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">APELLIDO Y NOMBRE</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">DNI</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">LICENCIA</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">VTO LICENCIA</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">TELEFONO</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">EMPRESA</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left hidden lg:table-cell">USUARIO</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-center">ESTADO</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-center">ACCIONES</th>
+<th class="w-[50px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">ID</th>
+<th class="px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">APELLIDO Y NOMBRE</th>
+<th class="w-[100px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">DNI</th>
+<th class="w-[90px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">LICENCIA</th>
+<th class="w-[100px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">VTO LICENCIA</th>
+<th class="w-[110px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">TELEFONO</th>
+<th class="w-[120px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">EMPRESA</th>
+<th class="w-[100px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-left hidden lg:table-cell">USUARIO</th>
+<th class="w-[80px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-center">ESTADO</th>
+<th class="w-[90px] px-3 py-3 font-label-caps text-[10px] text-on-surface-variant text-center">ACCIONES</th>
 </tr>
 </thead>
 <tbody class="divide-y divide-outline-variant" id="choferesTableBody">
 <?php foreach ($choferesList as $ch): ?>
-<tr class="chofer-row hover:bg-surface-container transition-colors" data-search="<?= strtolower(htmlspecialchars($ch['id_chofer'] . ' ' . $ch['nombre'] . ' ' . $ch['apellido'] . ' ' . $ch['dni'])) ?>">
-<td class="px-6 py-4 font-data-mono font-bold text-primary">#<?= htmlspecialchars($ch['id_chofer']) ?></td>
-<td class="px-6 py-4">
-<span class="font-medium"><?= htmlspecialchars($ch['apellido']) ?> <?= htmlspecialchars($ch['nombre']) ?></span>
-<?php if ($ch['tiene_camion']): ?><span class="ml-2 text-green-600 material-symbols-outlined text-sm" title="Tiene vehiculo asignado">local_shipping</span><?php endif; ?>
+<tr class="chofer-row hover:bg-surface-container transition-colors text-[12px]" data-search="<?= strtolower(htmlspecialchars($ch['id_chofer'] . ' ' . $ch['nombre'] . ' ' . $ch['apellido'] . ' ' . $ch['dni'])) ?>">
+<td class="px-3 py-2 font-data-mono font-bold text-primary">#<?= htmlspecialchars($ch['id_chofer']) ?></td>
+<td class="px-3 py-2 truncate" title="<?= htmlspecialchars($ch['apellido'] . ' ' . $ch['nombre']) ?>">
+<?= htmlspecialchars($ch['apellido']) ?>, <?= htmlspecialchars($ch['nombre']) ?>
+<?php if ($ch['tiene_camion']): ?><span class="ml-1 text-green-600 material-symbols-outlined text-sm align-text-bottom" title="Tiene vehiculo asignado">local_shipping</span><?php endif; ?>
 </td>
-<td class="px-6 py-4 font-data-mono"><?= htmlspecialchars($ch['dni']) ?></td>
-<td class="px-6 py-4"><?= htmlspecialchars($ch['licencia'] ?? '-') ?></td>
-<td class="px-6 py-4"><?= $ch['vencimiento_licencia'] ? date('d/m/Y', strtotime($ch['vencimiento_licencia'])) : '-' ?></td>
-<td class="px-6 py-4"><?= htmlspecialchars($ch['telefono'] ?? '-') ?></td>
-<td class="px-6 py-4 text-sm text-on-surface-variant"><?= htmlspecialchars($ch['empresa_nombre'] ?? '-') ?></td>
-<td class="px-6 py-4 hidden lg:table-cell">
+<td class="px-3 py-2 font-data-mono"><?= htmlspecialchars($ch['dni']) ?></td>
+<td class="px-3 py-2 truncate"><?= htmlspecialchars($ch['licencia'] ?? '-') ?></td>
+<td class="px-3 py-2 font-data-mono text-[11px]"><?= $ch['vencimiento_licencia'] ? date('d/m/Y', strtotime($ch['vencimiento_licencia'])) : '-' ?></td>
+<td class="px-3 py-2 truncate text-[11px]"><?= htmlspecialchars($ch['telefono'] ?? '-') ?></td>
+<td class="px-3 py-2 truncate text-[11px]"><?= htmlspecialchars($ch['empresa_nombre'] ?? '-') ?></td>
+<td class="px-3 py-2 hidden lg:table-cell">
 <?php if ($ch['usuario_asociado_nombre']): ?>
 <div class="flex items-center gap-1">
-<span class="text-xs font-medium"><?= htmlspecialchars($ch['usuario_asociado_nombre']) ?></span>
+<span class="text-[11px]"><?= htmlspecialchars($ch['usuario_asociado_nombre']) ?></span>
 <form method="POST" class="inline" onsubmit="return confirm('¿Desasociar usuario?')">
 <input type="hidden" name="action" value="desasociar_usuario"/>
 <input type="hidden" name="id_chofer" value="<?= $ch['id_chofer'] ?>"/>
-<button type="submit" class="text-red-500 hover:text-red-700 text-xs" title="Desasociar usuario">&times;</button>
+<button type="submit" class="text-red-500 hover:text-red-700 text-[11px] font-bold" title="Desasociar usuario">&times;</button>
 </form>
 </div>
 <?php else: ?>
-<button onclick="openAsociarUsuario(<?= $ch['id_chofer'] ?>)" class="text-xs text-primary underline hover:opacity-80">+ Asociar</button>
+<button onclick="openAsociarUsuario(<?= $ch['id_chofer'] ?>)" class="text-[10px] text-primary underline hover:opacity-80">+ Asociar</button>
 <?php endif; ?>
 </td>
-<td class="px-6 py-4 text-center">
-<span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase <?= $ch['estado'] === 'activo' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200' ?>"><?= $ch['estado'] ?></span>
+<td class="px-3 py-2 text-center">
+<span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase <?= $ch['estado'] === 'activo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' ?>"><?= $ch['estado'] ?></span>
 </td>
-<td class="px-6 py-4">
-<div class="flex gap-2 justify-center">
-<button onclick="editChofer(<?= $ch['id_chofer'] ?>)" class="px-3 py-1 bg-secondary-container text-on-secondary-container rounded text-xs font-bold hover:opacity-80">Editar</button>
-</div>
+<td class="px-3 py-2 text-center">
+<button onclick="editChofer(<?= $ch['id_chofer'] ?>)" class="px-2 py-1 bg-secondary-container text-on-secondary-container rounded text-[9px] font-bold hover:opacity-80">Editar</button>
 </td>
 </tr>
 <?php endforeach; ?>
