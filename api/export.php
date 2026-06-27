@@ -78,58 +78,157 @@ function generarHTML($data, $headers, $title, $totales = null) {
 
 function generarExcel($data, $headers, $title, $totales = null) {
     global $desde, $hasta;
-    header('Content-Type: text/html; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . str_replace(' ', '_', $title) . '.xls"');
-    header('Pragma: no-cache');
-    echo '<?xml version="1.0" encoding="UTF-8"?>';
-    echo '<?mso-application progid="Excel.Sheet"?>';
-    echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
-    echo '<head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">';
-    echo '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Reporte</x:Name></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->';
-    echo '<style>';
-    echo 'table { border-collapse: collapse; font-family: "Segoe UI", Arial, sans-serif; font-size: 10pt; }';
-    echo 'th { background: #091426; color: #fff; padding: 6px 8px; font-weight: bold; border: 1px solid #091426; text-align: left; }';
-    echo 'td { padding: 4px 8px; border: 1px solid #bbb; }';
-    echo 'tr:nth-child(even) td { background: #f4f6f9; }';
-    echo 'tfoot td { background: #e8ecf1; font-weight: bold; border: 1px solid #091426; }';
-    echo '.right { text-align: right; }';
-    echo '.title { font-size: 14pt; font-weight: bold; color: #091426; margin-bottom: 4px; }';
-    echo '.sub { font-size: 10pt; color: #555; margin-bottom: 10px; }';
-    echo '</style></head><body>';
-    echo '<div class="title">' . htmlspecialchars($title) . '</div>';
-    echo '<div class="sub">Periodo: ' . $desde . ' a ' . $hasta . '</div>';
-    echo '<table><thead><tr>';
-    foreach ($headers as $h) {
-        $cls = isNumericHeader($h) ? ' class="right"' : '';
-        echo '<th' . $cls . '>' . htmlspecialchars($h) . '</th>';
+
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment; filename="' . str_replace(' ', '_', $title) . '.xlsx"');
+    header('Cache-Control: max-age=0');
+
+    $tmp = tempnam(sys_get_temp_dir(), 'xlsx_');
+    $zip = new ZipArchive();
+    $zip->open($tmp, ZipArchive::CREATE);
+
+    $sharedStrings = [];
+    $ssIndex = 0;
+    function addString(&$ss, &$idx, $v) {
+        $k = array_search((string)$v, $ss, true);
+        if ($k === false) { $ss[] = (string)$v; $k = $idx++; }
+        return $k;
     }
-    echo '</tr></thead><tbody>';
+
+    function colLetter($i) {
+        $l = '';
+        while ($i >= 0) { $l = chr(65 + ($i % 26)) . $l; $i = intdiv($i, 26) - 1; }
+        return $l;
+    }
+    // Header row + data rows
+    $rowsXml = '';
+    $colLetters = [];
+    for ($c = 0; $c < count($headers); $c++) {
+        $colLetters[$c] = colLetter($c);
+        $rowsXml .= '<c r="' . $colLetters[$c] . '1" t="s" s="1"><v>' . addString($sharedStrings, $ssIndex, $headers[$c]) . '</v></c>';
+    }
+    $r = 2;
     foreach ($data as $row) {
-        echo '<tr>';
-        foreach ($headers as $h) {
+        $rowsXml .= '<row r="' . $r . '">';
+        foreach ($headers as $ci => $h) {
             $key = strtolower(str_replace(' ', '_', $h));
-            $cls = isNumericHeader($h) ? ' class="right"' : '';
-            echo '<td' . $cls . '>' . htmlspecialchars($row[$key] ?? '') . '</td>';
-        }
-        echo '</tr>';
-    }
-    echo '</tbody>';
-    if ($totales) {
-        echo '<tfoot><tr>';
-        foreach ($headers as $h) {
-            $key = strtolower(str_replace(' ', '_', $h));
-            $cls = isNumericHeader($h) ? ' class="right"' : '';
-            if ($key === 'fecha') {
-                echo '<td class="right" colspan="1"><strong>TOTALES</strong></td>';
-            } elseif (isset($totales[$key])) {
-                echo '<td' . $cls . '><strong>' . htmlspecialchars($totales[$key]) . '</strong></td>';
+            $val = $row[$key] ?? '';
+            $isNum = is_numeric($val) && $val !== '';
+            if ($isNum) {
+                $rowsXml .= '<c r="' . $colLetters[$ci] . $r . '" s="2"><v>' . $val . '</v></c>';
             } else {
-                echo '<td' . $cls . '></td>';
+                $rowsXml .= '<c r="' . $colLetters[$ci] . $r . '" t="s" s="0"><v>' . addString($sharedStrings, $ssIndex, $val) . '</v></c>';
             }
         }
-        echo '</tr></tfoot>';
+        $rowsXml .= '</row>';
+        $r++;
     }
-    echo '</table></body></html>';
+    if ($totales) {
+        $rowsXml .= '<row r="' . $r . '">';
+        foreach ($headers as $ci => $h) {
+            $key = strtolower(str_replace(' ', '_', $h));
+            if ($key === 'fecha') {
+                $rowsXml .= '<c r="' . $colLetters[$ci] . $r . '" t="s" s="3"><v>' . addString($sharedStrings, $ssIndex, 'TOTALES') . '</v></c>';
+            } elseif (isset($totales[$key])) {
+                $val = $totales[$key];
+                $isNum = is_numeric($val) && $val !== '';
+                if ($isNum) {
+                    $rowsXml .= '<c r="' . $colLetters[$ci] . $r . '" s="3"><v>' . $val . '</v></c>';
+                } else {
+                    $rowsXml .= '<c r="' . $colLetters[$ci] . $r . '" t="s" s="3"><v>' . addString($sharedStrings, $ssIndex, $val) . '</v></c>';
+                }
+            } else {
+                $rowsXml .= '<c r="' . $colLetters[$ci] . $r . '" s="3"/>';
+            }
+        }
+        $rowsXml .= '</row>';
+    }
+
+    // Shared strings XML
+    $ssXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' . count($sharedStrings) . '" uniqueCount="' . count($sharedStrings) . '">';
+    foreach ($sharedStrings as $s) {
+        $ssXml .= '<si><t>' . htmlspecialchars($s, ENT_XML1) . '</t></si>';
+    }
+    $ssXml .= '</sst>';
+    $zip->addFromString('xl/sharedStrings.xml', $ssXml);
+
+    // Worksheet
+    $sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView tabSelected="1" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<cols>';
+    for ($c = 0; $c < count($headers); $c++) {
+        $sheetXml .= '<col min="' . ($c+1) . '" max="' . ($c+1) . '" width="18" customWidth="1"/>';
+    }
+    $sheetXml .= '</cols><sheetData>' . $rowsXml . '</sheetData></worksheet>';
+    $zip->addFromString('xl/worksheets/sheet1.xml', $sheetXml);
+
+    // Styles
+    $stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="3">
+<font><sz val="10"/><name val="Segoe UI"/></font>
+<font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Segoe UI"/></font>
+<font><b/><sz val="10"/><name val="Segoe UI"/></font>
+</fonts>
+<fills count="3">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF091426"/></patternFill></fill>
+</fills>
+<borders count="2">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="4">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left"/></xf>
+<xf numFmtId="2" fontId="0" fillId="0" borderId="1" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+<xf numFmtId="0" fontId="2" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
+</cellXfs>
+</styleSheet>';
+    $zip->addFromString('xl/styles.xml', $stylesXml);
+
+    // Workbook
+    $wbXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Reporte" sheetId="1" r:id="rId1"/></sheets>
+</workbook>';
+    $zip->addFromString('xl/workbook.xml', $wbXml);
+
+    // Workbook rels
+    $wbRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>';
+    $zip->addFromString('xl/_rels/workbook.xml.rels', $wbRels);
+
+    // [Content_Types].xml
+    $ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>';
+    $zip->addFromString('[Content_Types].xml', $ct);
+
+    // _rels/.rels
+    $rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>';
+    $zip->addFromString('_rels/.rels', $rels);
+
+    $zip->close();
+    readfile($tmp);
+    unlink($tmp);
     exit;
 }
 
