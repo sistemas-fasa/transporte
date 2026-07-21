@@ -12,12 +12,13 @@ $anio = $_GET['anio'] ?? date('Y');
 $id_chofer = $_GET['id_chofer'] ?? '';
 $id_camion = $_GET['id_camion'] ?? '';
 $id_empresa = $_GET['id_empresa'] ?? '';
+$estacion = $_GET['estacion_servicio'] ?? '';
 $vista = $_GET['vista'] ?? 'todos';
 $buscar = $_GET['buscar'] ?? '';
 $orden = strtoupper($_GET['orden'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
 
 function isNumericHeader($h) {
-    $numeric = ['KM Salida', 'KM Llegada', 'KM Recorridos', 'HS Salida', 'HS Llegada', 'HS Recorridas', 'Litros', 'Precio Litro', 'Importe Total', 'Costo', 'Kilometraje'];
+    $numeric = ['KM Salida', 'KM Llegada', 'KM Recorridos', 'HS Salida', 'HS Llegada', 'HS Recorridas', 'Litros', 'Precio Litro', 'Importe Total', 'Costo', 'Kilometraje', 'Cargas', 'Total Gastado', 'Prom. Km/L', 'Prom. L/100 Km', 'Prom. Costo/Km', 'Prom. L/Hs', 'Prom. Costo/Hs'];
     return in_array($h, $numeric);
 }
 
@@ -259,6 +260,7 @@ switch ($tipo) {
         if ($id_chofer) { $sql .= " AND co.id_chofer = ?"; $params[] = $id_chofer; }
         if ($id_camion) { $sql .= " AND co.id_camion = ?"; $params[] = $id_camion; }
         if ($id_empresa) { $sql .= " AND ch.empresa_id = ?"; $params[] = $id_empresa; }
+        if ($estacion) { $sql .= " AND co.estacion_servicio = ?"; $params[] = $estacion; }
         $sql .= " ORDER BY co.fecha";
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
@@ -270,6 +272,82 @@ switch ($tipo) {
         foreach ($data as $r) { $tLitros += (float)($r['litros'] ?? 0); $tImporte += (float)($r['importe_total'] ?? 0); }
         $totales['litros'] = number_format($tLitros, 2);
         $totales['importe_total'] = number_format($tImporte, 2);
+        break;
+
+    case 'consumo_vehiculo':
+        $sql = "SELECT 
+                    c.patente as camion, 
+                    c.por_hora,
+                    COUNT(co.id_combustible) as cargas, 
+                    COALESCE(SUM(co.km_recorridos), 0) as km_recorridos, 
+                    COALESCE(SUM(co.hs_recorridas), 0) as hs_recorridas, 
+                    COALESCE(SUM(co.litros), 0) as litros, 
+                    COALESCE(SUM(co.litros * co.precio_litro), 0) as total_gastado
+                FROM combustible co
+                JOIN camiones c ON co.id_camion = c.id_camion
+                JOIN choferes ch ON co.id_chofer = ch.id_chofer
+                WHERE DATE(co.fecha) BETWEEN ? AND ?";
+        $params = [$desde, $hasta];
+        if ($id_chofer) { $sql .= " AND co.id_chofer = ?"; $params[] = $id_chofer; }
+        if ($id_camion) { $sql .= " AND co.id_camion = ?"; $params[] = $id_camion; }
+        if ($estacion) { $sql .= " AND co.estacion_servicio = ?"; $params[] = $estacion; }
+        
+        $sql .= " GROUP BY c.id_camion ORDER BY c.patente";
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $raw_data = $stmt->fetchAll();
+
+        $data = [];
+        $totCargas = 0; $totKm = 0; $totHs = 0; $totLitros = 0; $totGastado = 0;
+        foreach ($raw_data as $r) {
+            $prom_km_l = $r['km_recorridos'] > 0 && $r['litros'] > 0 ? round($r['km_recorridos'] / $r['litros'], 2) : 0;
+            $prom_l_100 = $r['km_recorridos'] > 0 && $r['litros'] > 0 ? round(($r['litros'] * 100) / $r['km_recorridos'], 2) : 0;
+            $prom_costo_km = $r['km_recorridos'] > 0 ? round($r['total_gastado'] / $r['km_recorridos'], 2) : 0;
+            
+            $prom_l_hs = $r['por_hora'] && $r['litros'] > 0 ? round($r['hs_recorridas'] / $r['litros'], 2) : 0;
+            $prom_costo_hs = $r['por_hora'] && $r['hs_recorridas'] > 0 ? round($r['total_gastado'] / $r['hs_recorridas'], 2) : 0;
+
+            $data[] = [
+                'camion' => $r['camion'],
+                'cargas' => $r['cargas'],
+                'km_recorridos' => $r['km_recorridos'] > 0 ? $r['km_recorridos'] : '',
+                'hs_recorridas' => $r['hs_recorridas'] > 0 ? $r['hs_recorridas'] : '',
+                'litros' => $r['litros'],
+                'total_gastado' => $r['total_gastado'],
+                'prom._km/l' => $prom_km_l ?: '',
+                'prom._l/100_km' => $prom_l_100 ?: '',
+                'prom._costo/km' => $prom_costo_km ?: '',
+                'prom._hs/l' => $prom_l_hs ?: '',
+                'prom._costo/hs' => $prom_costo_hs ?: ''
+            ];
+
+            $totCargas += $r['cargas'];
+            $totKm += $r['km_recorridos'];
+            $totHs += $r['hs_recorridas'];
+            $totLitros += $r['litros'];
+            $totGastado += $r['total_gastado'];
+        }
+
+        $headers = ['Camion', 'Cargas', 'KM Recorridos', 'HS Recorridas', 'Litros', 'Total Gastado', 'Prom. Km/L', 'Prom. L/100 Km', 'Prom. Costo/Km', 'Prom. Hs/L', 'Prom. Costo/Hs'];
+        $title = 'Resumen de Consumo por Vehículo';
+        
+        $gral_km_l = $totKm > 0 && $totLitros > 0 ? round($totKm / $totLitros, 2) : 0;
+        $gral_l_100 = $totKm > 0 && $totLitros > 0 ? round(($totLitros * 100) / $totKm, 2) : 0;
+        $gral_costo_km = $totKm > 0 ? round($totGastado / $totKm, 2) : 0;
+        $gral_l_hs = $totLitros > 0 ? round($totHs / $totLitros, 2) : 0;
+        $gral_costo_hs = $totHs > 0 ? round($totGastado / $totHs, 2) : 0;
+        $totales = [
+            'cargas' => $totCargas,
+            'km_recorridos' => $totKm > 0 ? $totKm : '',
+            'hs_recorridas' => $totHs > 0 ? $totHs : '',
+            'litros' => $totLitros,
+            'total_gastado' => $totGastado,
+            'prom._km/l' => $gral_km_l ?: '',
+            'prom._l/100_km' => $gral_l_100 ?: '',
+            'prom._costo/km' => $gral_costo_km ?: '',
+            'prom._hs/l' => $gral_l_hs ?: '',
+            'prom._costo/hs' => $gral_costo_hs ?: ''
+        ];
         break;
 
     case 'mantenimiento':

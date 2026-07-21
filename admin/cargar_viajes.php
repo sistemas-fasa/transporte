@@ -340,7 +340,7 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <div class="grid grid-cols-2 gap-4" id="kmFields">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Salida</label>
-<input name="km_salida" id="viajeKmSalida" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
+<input name="km_salida" id="viajeKmSalida" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" oninput="calcKmRec()" required/>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Llegada</label>
@@ -350,7 +350,7 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <div class="grid grid-cols-2 gap-4 hidden" id="hsFields">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Salida (Horas)</label>
-<input name="hs_salida" id="viajeHsSalida" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+<input name="hs_salida" id="viajeHsSalida" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" oninput="calcKmRec()"/>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Llegada (Horas)</label>
@@ -450,11 +450,11 @@ function toggleFieldsByCamion() {
     var calcLabel = document.getElementById('viajeCalculadoLabel');
     
     if (porHora) {
-        kmFields.classList.add('hidden');
+        kmFields.classList.remove('hidden');
         hsFields.classList.remove('hidden');
-        kmSalida.removeAttribute('required');
+        kmSalida.setAttribute('required', 'required');
         hsSalida.setAttribute('required', 'required');
-        calcLabel.innerText = 'Horas Recorridas';
+        calcLabel.innerText = 'KM y HS Recorridos';
     } else {
         kmFields.classList.remove('hidden');
         hsFields.classList.add('hidden');
@@ -589,13 +589,19 @@ function calcKmRec() {
     var porHora = opt && opt.getAttribute('data-por-hora') == '1';
     
     if (porHora) {
-        const s = parseFloat(hsSalida.value) || 0;
-        const l = parseFloat(hsLlegada.value) || 0;
-        kmRecDisplay.innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' hs';
+        const kmS = parseFloat(kmSalida.value) || 0;
+        const kmL = parseFloat(kmLlegada.value) || 0;
+        const hsS = parseFloat(hsSalida.value) || 0;
+        const hsL = parseFloat(hsLlegada.value) || 0;
+        
+        let parts = [];
+        if (kmL >= kmS && kmL > 0) parts.push((kmL - kmS).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' km');
+        if (hsL >= hsS && hsL > 0) parts.push((hsL - hsS).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' hs');
+        kmRecDisplay.innerText = parts.length > 0 ? parts.join(' / ') : '0';
     } else {
         const s = parseFloat(kmSalida.value) || 0;
         const l = parseFloat(kmLlegada.value) || 0;
-        kmRecDisplay.innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' km';
+        kmRecDisplay.innerText = (l - s >= 0 ? l - s : 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' km';
     }
 }
 kmSalida.addEventListener('input', calcKmRec);

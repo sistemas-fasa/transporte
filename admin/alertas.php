@@ -2,84 +2,41 @@
 require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
 requirePermission('alertas_ver');
+
+$db = getDB();
+
+// POST Handlers (Resolver / Reabrir Alertas) ANTES de output HTML
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (isset($_POST['resolver'])) {
+        $id = (int)$_POST['id_alerta'];
+        $db->prepare("UPDATE alertas SET resuelta = 1 WHERE id_alerta = ?")->execute([$id]);
+        header('Location: ' . BASE_URL . '/admin/alertas.php?ver=activas');
+        exit;
+    }
+    if (isset($_POST['reabrir'])) {
+        $id = (int)$_POST['id_alerta'];
+        $db->prepare("UPDATE alertas SET resuelta = 0 WHERE id_alerta = ?")->execute([$id]);
+        header('Location: ' . BASE_URL . '/admin/alertas.php?ver=activas');
+        exit;
+    }
+}
+
 $pageTitle = 'Alertas';
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
 
-$db = getDB();
-
 // Generate alerts automatically
-try {
-    // Licencias proximas a vencer
-    $licencias = $db->query("SELECT c.id_chofer, c.nombre, c.apellido, c.vencimiento_licencia FROM choferes c WHERE c.estado = 'activo' AND c.vencimiento_licencia IS NOT NULL AND c.vencimiento_licencia <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchAll();
-    foreach ($licencias as $l) {
-        $diff = (strtotime($l['vencimiento_licencia']) - time()) / 86400;
-        $severidad = $diff <= 0 ? 'rojo' : ($diff <= 15 ? 'rojo' : 'amarillo');
-        $msg = "Licencia de {$l['nombre']} {$l['apellido']} vence el " . date('d/m/Y', strtotime($l['vencimiento_licencia']));
-        $check = $db->prepare("SELECT COUNT(*) FROM alertas WHERE tipo='vencimiento_licencia' AND id_referencia=? AND resuelta=0");
-        $check->execute([$l['id_chofer']]);
-        if ($check->fetchColumn() == 0) {
-            $db->prepare("INSERT INTO alertas (tipo, id_referencia, mensaje, severidad) VALUES ('vencimiento_licencia', ?, ?, ?)")->execute([$l['id_chofer'], $msg, $severidad]);
-        }
-    }
+require_once __DIR__ . '/../includes/alertas_helper.php';
+generarAlertasAutomaticas($db);
 
-    // VTV proximas a vencer (3 meses de anticipacion)
-    $vtvs = $db->query("SELECT v.*, c.patente FROM vtv v JOIN camiones c ON v.id_camion = c.id_camion WHERE v.fecha_vencimiento <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)")->fetchAll();
-    foreach ($vtvs as $v) {
-        $diff = (strtotime($v['fecha_vencimiento']) - time()) / 86400;
-        $severidad = $diff <= 0 ? 'rojo' : ($diff <= 15 ? 'rojo' : ($diff <= 60 ? 'amarillo' : 'verde'));
-        $msg = "VTV de camion {$v['patente']} vence el " . date('d/m/Y', strtotime($v['fecha_vencimiento']));
-        $check = $db->prepare("SELECT COUNT(*) FROM alertas WHERE tipo='vencimiento_vtv' AND id_referencia=? AND resuelta=0");
-        $check->execute([$v['id_camion']]);
-        if ($check->fetchColumn() == 0) {
-            $db->prepare("INSERT INTO alertas (tipo, id_referencia, mensaje, severidad) VALUES ('vencimiento_vtv', ?, ?, ?)")->execute([$v['id_camion'], $msg, $severidad]);
-        }
-    }
-    // VTV desde columna directa en camiones
-    $vtvsCamion = $db->query("SELECT id_camion, patente, vtv FROM camiones WHERE vtv IS NOT NULL AND vtv <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) AND vtv NOT IN (SELECT fecha_vencimiento FROM vtv WHERE id_camion = camiones.id_camion)")->fetchAll();
-    foreach ($vtvsCamion as $v) {
-        $diff = (strtotime($v['vtv']) - time()) / 86400;
-        $severidad = $diff <= 0 ? 'rojo' : ($diff <= 15 ? 'rojo' : ($diff <= 60 ? 'amarillo' : 'verde'));
-        $msg = "VTV de camion {$v['patente']} vence el " . date('d/m/Y', strtotime($v['vtv']));
-        $check = $db->prepare("SELECT COUNT(*) FROM alertas WHERE tipo='vencimiento_vtv' AND id_referencia=? AND resuelta=0");
-        $check->execute([$v['id_camion']]);
-        if ($check->fetchColumn() == 0) {
-            $db->prepare("INSERT INTO alertas (tipo, id_referencia, mensaje, severidad) VALUES ('vencimiento_vtv', ?, ?, ?)")->execute([$v['id_camion'], $msg, $severidad]);
-        }
-    }
+$ver = $_GET['ver'] ?? 'activas';
+$isResueltas = ($ver === 'resueltas');
 
-    // Seguros vencidos
-    $seguros = $db->query("SELECT s.*, c.patente FROM seguros s JOIN camiones c ON s.id_camion = c.id_camion WHERE s.fecha_vencimiento <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)")->fetchAll();
-    foreach ($seguros as $s) {
-        $diff = (strtotime($s['fecha_vencimiento']) - time()) / 86400;
-        $severidad = $diff <= 0 ? 'rojo' : 'amarillo';
-        $msg = "Seguro de camion {$s['patente']} vence el " . date('d/m/Y', strtotime($s['fecha_vencimiento']));
-        $check = $db->prepare("SELECT COUNT(*) FROM alertas WHERE tipo='vencimiento_seguro' AND id_referencia=? AND resuelta=0");
-        $check->execute([$s['id_camion']]);
-        if ($check->fetchColumn() == 0) {
-            $db->prepare("INSERT INTO alertas (tipo, id_referencia, mensaje, severidad) VALUES ('vencimiento_seguro', ?, ?, ?)")->execute([$s['id_camion'], $msg, $severidad]);
-        }
-    }
+$countActivas = (int)$db->query("SELECT COUNT(*) FROM alertas WHERE resuelta = 0")->fetchColumn();
+$countResueltas = (int)$db->query("SELECT COUNT(*) FROM alertas WHERE resuelta = 1")->fetchColumn();
 
-    // Proximo mantenimiento
-    $mants = $db->query("SELECT m.*, c.patente FROM mantenimientos m JOIN camiones c ON m.id_camion = c.id_camion WHERE m.proximo_mantenimiento_km IS NOT NULL AND c.kilometraje_actual >= (m.proximo_mantenimiento_km - 1000) AND (SELECT COUNT(*) FROM alertas WHERE tipo='cambio_aceite' AND id_referencia=m.id_mantenimiento AND resuelta=0) = 0")->fetchAll();
-    foreach ($mants as $m) {
-        $msg = "Cambio de aceite proximo para {$m['patente']} - programar en los proximos 1000km";
-        $db->prepare("INSERT INTO alertas (tipo, id_referencia, mensaje, severidad) VALUES ('cambio_aceite', ?, ?, 'amarillo')")->execute([$m['id_camion'], $msg]);
-    }
-} catch (Exception $e) {
-    // Silently handle
-}
-
-// Resolve alerts
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resolver'])) {
-    $id = (int)$_POST['id_alerta'];
-    $db->prepare("UPDATE alertas SET resuelta = 1 WHERE id_alerta = ?")->execute([$id]);
-    header('Location: ' . BASE_URL . '/admin/alertas.php');
-    exit;
-}
-
-$alertas = $db->query("SELECT a.*, c.patente FROM alertas a LEFT JOIN camiones c ON a.id_referencia = c.id_camion WHERE resuelta = 0 ORDER BY FIELD(severidad,'rojo','amarillo','verde'), fecha_creacion DESC")->fetchAll();
+$sqlWhere = $isResueltas ? "WHERE resuelta = 1" : "WHERE resuelta = 0";
+$alertas = $db->query("SELECT a.*, c.patente FROM alertas a LEFT JOIN camiones c ON a.id_referencia = c.id_camion $sqlWhere ORDER BY FIELD(severidad,'rojo','amarillo','verde'), fecha_creacion DESC")->fetchAll();
 ?>
 
 <main class="pt-20 pb-24 md:pb-8 md:pl-64 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
@@ -109,14 +66,23 @@ $alertas = $db->query("SELECT a.*, c.patente FROM alertas a LEFT JOIN camiones c
 </div>
 </div>
 
-<!-- Alertas List -->
+<!-- Alertas List & Tabs -->
 <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
-<div class="p-6 border-b border-outline-variant">
-<h3 class="font-headline-sm text-headline-sm text-primary uppercase">Alertas Activas</h3>
+<div class="p-6 border-b border-outline-variant flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+<h3 class="font-headline-sm text-headline-sm text-primary uppercase"><?= $isResueltas ? 'Historial de Alertas Resueltas' : 'Alertas Activas' ?></h3>
+<div class="flex gap-2 bg-surface-container-high/50 p-1 rounded-lg">
+<a href="?ver=activas" class="px-4 py-2 rounded-md font-bold text-xs transition-colors <?= !$isResueltas ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-primary' ?>">
+    Activas (<?= $countActivas ?>)
+</a>
+<a href="?ver=resueltas" class="px-4 py-2 rounded-md font-bold text-xs transition-colors <?= $isResueltas ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-primary' ?>">
+    Resueltas (<?= $countResueltas ?>)
+</a>
 </div>
+</div>
+
 <div class="divide-y divide-outline-variant">
 <?php if (empty($alertas)): ?>
-<p class="p-6 text-on-surface-variant text-center">No hay alertas activas. Todo en orden.</p>
+<p class="p-6 text-on-surface-variant text-center"><?= $isResueltas ? 'No hay alertas en el historial de resueltas.' : 'No hay alertas activas. Todo en orden.' ?></p>
 <?php else: ?>
 <?php foreach ($alertas as $a):
 $cfg = [
@@ -138,9 +104,17 @@ $c = $cfg[$a['severidad']] ?? $cfg['verde'];
 </div>
 <span class="text-[10px] font-bold <?= $c['labeltext'] ?>"><?= $c['label'] ?></span>
 </div>
-<form method="POST" class="mt-2">
+<form method="POST" class="mt-3">
 <input type="hidden" name="id_alerta" value="<?= $a['id_alerta'] ?>"/>
-<button type="submit" name="resolver" class="text-xs font-bold text-primary underline">Marcar como resuelta</button>
+<?php if ($isResueltas): ?>
+<button type="submit" name="reabrir" class="text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg border border-amber-300 transition-colors inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">unarchive</span> Reabrir Alerta (Volver a Activas)
+</button>
+<?php else: ?>
+<button type="submit" name="resolver" class="text-xs font-bold text-primary underline inline-flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">check_circle</span> Marcar como resuelta
+</button>
+<?php endif; ?>
 </form>
 </div>
 </div>

@@ -40,6 +40,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $idChofer = $db->lastInsertId();
                 }
 
+                if ($vencimiento_licencia) {
+                    $db->prepare("UPDATE alertas SET resuelta = 1 WHERE tipo = 'vencimiento_licencia' AND id_referencia = ? AND resuelta = 0")->execute([$idChofer]);
+                }
+
                 // Crear usuario asociado si no existe
                 $username = strtolower(substr($nombre, 0, 1) . $apellido);
                 $password = password_hash($dni, PASSWORD_DEFAULT);
@@ -65,6 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $stmt = $db->prepare("UPDATE choferes SET nombre=?, apellido=?, dni=?, telefono=?, licencia=?, vencimiento_licencia=?, estado=?, empresa_id=? WHERE id_chofer=?");
                     $stmt->execute([$nombre, $apellido, $dni, $telefono, $licencia, $vencimiento_licencia, $estado, $empresa_id, $id]);
+                }
+                if ($vencimiento_licencia) {
+                    $db->prepare("UPDATE alertas SET resuelta = 1 WHERE tipo = 'vencimiento_licencia' AND id_referencia = ? AND resuelta = 0")->execute([$id]);
                 }
                 registrarAuditoria(getCurrentUserId(), 'update', 'choferes', $id, "Actualizo chofer $nombre $apellido");
                 $mensaje = 'Chofer actualizado';

@@ -115,7 +115,7 @@ $rendimiento = $combData['litros'] > 0 ? ($kmData['total'] / $combData['litros']
 // Ultimas cargas de combustible
 $ultimasCargas = [];
 try {
-    $cargasSql = "SELECT co.fecha, co.litros, co.precio_litro, c.patente FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion WHERE ";
+    $cargasSql = "SELECT co.fecha, co.litros, co.precio_litro, co.kilometraje_al_cargar, co.horas_al_cargar, c.patente FROM combustible co JOIN camiones c ON co.id_camion = c.id_camion WHERE ";
     $cargasParams = [];
     if ($idChofer) { $cargasSql .= "co.id_chofer = ?"; $cargasParams[] = $idChofer; }
     elseif ($userId) { $cargasSql .= "co.id_usuario_registra = ?"; $cargasParams[] = $userId; }
@@ -317,8 +317,13 @@ Sin vehiculos asignados
 </div>
 </div>
 <div class="text-right">
-<p class="font-data-mono text-primary font-bold"><?= number_format($carga['litros'], 1) ?> L</p>
-<p class="text-xs text-on-surface-variant">$<?= number_format($carga['precio_litro'], 2) ?>/L</p>
+<p class="font-data-mono text-primary font-bold"><?= number_format($carga['litros'], 4) ?> L</p>
+<p class="text-xs text-on-surface-variant">$<?= number_format($carga['precio_litro'], 4) ?>/L<?php
+    $det = [];
+    if (!empty($carga['kilometraje_al_cargar']) && $carga['kilometraje_al_cargar'] > 0) $det[] = number_format($carga['kilometraje_al_cargar'], 0) . ' KM';
+    if (!empty($carga['horas_al_cargar']) && $carga['horas_al_cargar'] > 0) $det[] = number_format($carga['horas_al_cargar'], 1) . ' HS';
+    if (!empty($det)) echo ' | ' . implode(' / ', $det);
+?></p>
 </div>
 </div>
 <?php endforeach; ?>

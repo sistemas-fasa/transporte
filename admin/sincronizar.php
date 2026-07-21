@@ -99,6 +99,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['sincronizar'])) {
         }
 
         $db->commit();
+
+        // Recalculate calculations for all trucks
+        $camionesIds = $db->query("SELECT id_camion FROM camiones")->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($camionesIds as $idCam) {
+            recalcularCombustibleCamion($idCam);
+        }
+
         $mensaje = "<div class='bg-green-100 text-green-800 p-4 rounded-lg mb-6'>Sincronización completada: $countChoferes choferes, $countCamiones camiones, $countCombustible registros de combustible importados.</div>";
 
     } catch (Exception $e) {

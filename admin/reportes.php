@@ -14,6 +14,7 @@ $anio = $_GET['anio'] ?? date('Y');
 $id_chofer = $_GET['id_chofer'] ?? '';
 $id_camion = $_GET['id_camion'] ?? '';
 $id_empresa = $_GET['id_empresa'] ?? '';
+$estacion = $_GET['estacion_servicio'] ?? '';
 
 $camionesList = $db->query("SELECT id_camion, patente FROM camiones ORDER BY patente")->fetchAll();
 $choferesList = $db->query("SELECT id_chofer, nombre, apellido FROM choferes ORDER BY apellido")->fetchAll();
@@ -27,10 +28,10 @@ $empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo
 <p class="font-body-md text-body-md text-on-surface-variant">Exportacion de datos y analisis.</p>
 </div>
 <div class="flex gap-2">
-<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=pdf&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>" target="_blank" class="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
+<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=pdf&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>&estacion_servicio=<?= urlencode($estacion) ?>" target="_blank" class="px-4 py-2 bg-red-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
 <span class="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
 </a>
-<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=excel&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>" class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
+<a href="<?= BASE_URL ?>/api/export.php?tipo=<?= $tipo ?>&formato=excel&desde=<?= $desde ?>&hasta=<?= $hasta ?>&id_chofer=<?= $id_chofer ?>&id_camion=<?= $id_camion ?>&id_empresa=<?= $id_empresa ?>&estacion_servicio=<?= urlencode($estacion) ?>" class="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm flex items-center gap-1 hover:opacity-90">
 <span class="material-symbols-outlined text-sm">table_chart</span> Excel
 </a>
 </div>
@@ -43,6 +44,7 @@ $empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Tipo Reporte</label>
 <select name="tipo" onchange="this.form.submit()" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm">
 <option value="combustible" <?= $tipo === 'combustible' ? 'selected' : '' ?>>Combustible</option>
+<option value="consumo_vehiculo" <?= $tipo === 'consumo_vehiculo' ? 'selected' : '' ?>>Consumo por Vehículo</option>
 <option value="mantenimiento" <?= $tipo === 'mantenimiento' ? 'selected' : '' ?>>Mantenimiento</option>
 <option value="chofer" <?= $tipo === 'chofer' ? 'selected' : '' ?>>Por Chofer</option>
 <option value="camion" <?= $tipo === 'camion' ? 'selected' : '' ?>>Por Camion</option>
@@ -89,6 +91,15 @@ $empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo
 <?php endforeach; ?>
 </select>
 </div>
+<div>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Estación</label>
+<select name="estacion_servicio" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm">
+<option value="">Todas</option>
+<?php foreach(['YPF', 'SHELL', 'AXION', 'CISTERNA'] as $est): ?>
+<option value="<?= $est ?>" <?= $estacion === $est ? 'selected' : '' ?>><?= $est ?></option>
+<?php endforeach; ?>
+</select>
+</div>
 <button type="submit" class="px-4 py-2 bg-primary text-on-primary rounded-lg font-bold text-sm">Filtrar</button>
 </form>
 </div>
@@ -98,7 +109,7 @@ $empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo
 <div class="p-6 border-b border-outline-variant">
 <h3 class="font-headline-sm text-headline-sm text-primary uppercase">
 <?php
-$titulos = ['combustible' => 'Reporte de Combustible', 'mantenimiento' => 'Reporte de Mantenimiento', 'chofer' => 'Reporte por Chofer', 'camion' => 'Reporte por Camion', 'mensual' => 'Reporte Mensual', 'anual' => 'Reporte Anual'];
+$titulos = ['combustible' => 'Reporte de Combustible', 'consumo_vehiculo' => 'Resumen de Consumo por Vehículo', 'mantenimiento' => 'Reporte de Mantenimiento', 'chofer' => 'Reporte por Chofer', 'camion' => 'Reporte por Camion', 'mensual' => 'Reporte Mensual', 'anual' => 'Reporte Anual'];
 echo $titulos[$tipo] ?? 'Reporte';
 ?>
 </h3>
@@ -107,23 +118,121 @@ echo $titulos[$tipo] ?? 'Reporte';
 <?php
 switch ($tipo) {
     case 'combustible':
-        $sql = "SELECT co.fecha, ch.apellido, ch.nombre, c.patente, co.estacion_servicio, co.litros, co.precio_litro, (co.litros * co.precio_litro) as importe_total, co.kilometraje_al_cargar FROM combustible co JOIN choferes ch ON co.id_chofer = ch.id_chofer JOIN camiones c ON co.id_camion = c.id_camion WHERE DATE(co.fecha) BETWEEN ? AND ?";
+        $sql = "SELECT co.fecha, ch.apellido, ch.nombre, c.patente, co.estacion_servicio, co.litros, co.precio_litro, (co.litros * co.precio_litro) as importe_total, co.kilometraje_al_cargar, co.horas_al_cargar FROM combustible co JOIN choferes ch ON co.id_chofer = ch.id_chofer JOIN camiones c ON co.id_camion = c.id_camion WHERE DATE(co.fecha) BETWEEN ? AND ?";
         $params = [$desde, $hasta];
         if ($id_chofer) { $sql .= " AND co.id_chofer = ?"; $params[] = $id_chofer; }
         if ($id_camion) { $sql .= " AND co.id_camion = ?"; $params[] = $id_camion; }
+        if ($estacion) { $sql .= " AND co.estacion_servicio = ?"; $params[] = $estacion; }
         $sql .= " ORDER BY co.fecha DESC";
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
         $data = $stmt->fetchAll();
         echo '<table class="w-full text-sm"><thead><tr class="bg-surface-container-high">';
-        echo '<th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Chofer</th><th class="p-2 text-left">Camion</th><th class="p-2 text-left">Estacion</th><th class="p-2 text-right">Litros</th><th class="p-2 text-right">Precio/L</th><th class="p-2 text-right">Total</th>';
+        echo '<th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Chofer</th><th class="p-2 text-left">Camion</th><th class="p-2 text-left">Estacion</th><th class="p-2 text-right">Litros</th><th class="p-2 text-right">Precio/L</th><th class="p-2 text-right">Total</th><th class="p-2 text-right">KM / HS</th>';
         echo '</tr></thead><tbody>';
         $tLitros = 0; $tTotal = 0;
         foreach ($data as $r) {
-            echo "<tr class='border-t border-outline-variant hover:bg-surface-container'><td class='p-2'>" . date('d/m/Y', strtotime($r['fecha'])) . "</td><td class='p-2'>{$r['apellido']}, {$r['nombre']}</td><td class='p-2 font-bold'>{$r['patente']}</td><td class='p-2'>{$r['estacion_servicio']}</td><td class='p-2 text-right'>" . number_format($r['litros'], 2) . "</td><td class='p-2 text-right'>$" . number_format($r['precio_litro'], 3) . "</td><td class='p-2 text-right font-bold'>$" . number_format($r['importe_total'], 2) . "</td></tr>";
+            $parts = [];
+            if ($r['kilometraje_al_cargar'] !== null && $r['kilometraje_al_cargar'] > 0) $parts[] = number_format($r['kilometraje_al_cargar'], 0) . ' KM';
+            if ($r['horas_al_cargar'] !== null && $r['horas_al_cargar'] > 0) $parts[] = number_format($r['horas_al_cargar'], 1) . ' HS';
+            $km_hs_text = !empty($parts) ? implode(' / ', $parts) : '-';
+
+            echo "<tr class='border-t border-outline-variant hover:bg-surface-container'><td class='p-2'>" . date('d/m/Y', strtotime($r['fecha'])) . "</td><td class='p-2'>{$r['apellido']}, {$r['nombre']}</td><td class='p-2 font-bold'>{$r['patente']}</td><td class='p-2'>{$r['estacion_servicio']}</td><td class='p-2 text-right'>" . number_format($r['litros'], 4) . "</td><td class='p-2 text-right'>$" . number_format($r['precio_litro'], 4) . "</td><td class='p-2 text-right font-bold'>$" . number_format($r['importe_total'], 2) . "</td><td class='p-2 text-right font-data-mono'>{$km_hs_text}</td></tr>";
             $tLitros += $r['litros']; $tTotal += $r['importe_total'];
         }
-        echo "<tr class='bg-surface-container font-bold'><td colspan='4' class='p-2 text-right'>TOTALES</td><td class='p-2 text-right'>" . number_format($tLitros, 2) . "</td><td></td><td class='p-2 text-right'>$" . number_format($tTotal, 2) . "</td></tr>";
+        echo "<tr class='bg-surface-container font-bold'><td colspan='4' class='p-2 text-right'>TOTALES</td><td class='p-2 text-right'>" . number_format($tLitros, 4) . "</td><td></td><td class='p-2 text-right'>$" . number_format($tTotal, 2) . "</td><td></td></tr>";
+        echo '</tbody></table>';
+        break;
+
+    case 'consumo_vehiculo':
+        $sql = "SELECT 
+                    c.id_camion,
+                    c.patente,
+                    c.marca,
+                    c.modelo,
+                    c.por_hora,
+                    COUNT(co.id_combustible) as cantidad_cargas,
+                    COALESCE(SUM(co.km_recorridos), 0) as total_km,
+                    COALESCE(SUM(co.hs_recorridas), 0) as total_hs,
+                    COALESCE(SUM(co.litros), 0) as total_litros,
+                    COALESCE(SUM(co.litros * co.precio_litro), 0) as total_gastado
+                FROM combustible co
+                JOIN camiones c ON co.id_camion = c.id_camion
+                JOIN choferes ch ON co.id_chofer = ch.id_chofer
+                WHERE DATE(co.fecha) BETWEEN ? AND ?";
+        $params = [$desde, $hasta];
+        if ($id_chofer) { $sql .= " AND co.id_chofer = ?"; $params[] = $id_chofer; }
+        if ($id_camion) { $sql .= " AND co.id_camion = ?"; $params[] = $id_camion; }
+        if ($estacion) { $sql .= " AND co.estacion_servicio = ?"; $params[] = $estacion; }
+        
+        $sql .= " GROUP BY c.id_camion ORDER BY c.patente ASC";
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $data = $stmt->fetchAll();
+
+        echo '<table class="w-full text-sm"><thead><tr class="bg-surface-container-high">';
+        echo '<th class="p-2 text-left">Camion / Patente</th>';
+        echo '<th class="p-2 text-right">Cargas</th>';
+        echo '<th class="p-2 text-right">KM Recorridos</th>';
+        echo '<th class="p-2 text-right">Horas Recorridas</th>';
+        echo '<th class="p-2 text-right">Litros Consumidos</th>';
+        echo '<th class="p-2 text-right">Total Gastado</th>';
+        echo '<th class="p-2 text-right">Prom. Km/L</th>';
+        echo '<th class="p-2 text-right">Prom. L/100 Km</th>';
+        echo '<th class="p-2 text-right">Prom. Costo/Km</th>';
+        echo '<th class="p-2 text-right">Prom. Hs/L</th>';
+        echo '<th class="p-2 text-right">Prom. Costo/Hs</th>';
+        echo '</tr></thead><tbody>';
+
+        $totCargas = 0; $totKm = 0; $totHs = 0; $totLitros = 0; $totGastado = 0;
+        foreach ($data as $r) {
+            $prom_km_l = $r['total_km'] > 0 && $r['total_litros'] > 0 ? round($r['total_km'] / $r['total_litros'], 2) : 0;
+            $prom_l_100 = $r['total_km'] > 0 && $r['total_litros'] > 0 ? round(($r['total_litros'] * 100) / $r['total_km'], 2) : 0;
+            $prom_costo_km = $r['total_km'] > 0 ? round($r['total_gastado'] / $r['total_km'], 2) : 0;
+            
+            $prom_l_hs = $r['por_hora'] && $r['total_litros'] > 0 ? round($r['total_hs'] / $r['total_litros'], 2) : 0;
+            $prom_costo_hs = $r['por_hora'] && $r['total_hs'] > 0 ? round($r['total_gastado'] / $r['total_hs'], 2) : 0;
+
+            echo "<tr class='border-t border-outline-variant hover:bg-surface-container'>";
+            echo "<td class='p-2 font-bold'>{$r['marca']} {$r['modelo']} ({$r['patente']})</td>";
+            echo "<td class='p-2 text-right'>{$r['cantidad_cargas']}</td>";
+            echo "<td class='p-2 text-right font-data-mono'>" . ($r['total_km'] > 0 ? number_format($r['total_km'], 0) : '-') . "</td>";
+            echo "<td class='p-2 text-right font-data-mono'>" . ($r['total_hs'] > 0 ? number_format($r['total_hs'], 1) : '-') . "</td>";
+            echo "<td class='p-2 text-right font-data-mono'>" . number_format($r['total_litros'], 2) . " L</td>";
+            echo "<td class='p-2 text-right font-data-mono font-bold'>$" . number_format($r['total_gastado'], 2) . "</td>";
+            echo "<td class='p-2 text-right font-data-mono'>" . ($prom_km_l > 0 ? number_format($prom_km_l, 2) . " Km/L" : '-') . "</td>";
+            echo "<td class='p-2 text-right font-data-mono'>" . ($prom_l_100 > 0 ? number_format($prom_l_100, 2) . " L/100 Km" : '-') . "</td>";
+            echo "<td class='p-2 text-right font-data-mono'>" . ($prom_costo_km > 0 ? "$" . number_format($prom_costo_km, 2) : '-') . "</td>";
+            echo "<td class='p-2 text-right font-data-mono'>" . ($prom_l_hs > 0 ? number_format($prom_l_hs, 2) . " Hs/L" : '-') . "</td>";
+            echo "<td class='p-2 text-right font-data-mono'>" . ($prom_costo_hs > 0 ? "$" . number_format($prom_costo_hs, 2) : '-') . "</td>";
+            echo "</tr>";
+
+            $totCargas += $r['cantidad_cargas'];
+            $totKm += $r['total_km'];
+            $totHs += $r['total_hs'];
+            $totLitros += $r['total_litros'];
+            $totGastado += $r['total_gastado'];
+        }
+
+        $gral_km_l = $totKm > 0 && $totLitros > 0 ? round($totKm / $totLitros, 2) : 0;
+        $gral_l_100 = $totKm > 0 && $totLitros > 0 ? round(($totLitros * 100) / $totKm, 2) : 0;
+        $gral_costo_km = $totKm > 0 ? round($totGastado / $totKm, 2) : 0;
+        $gral_l_hs = $totLitros > 0 ? round($totHs / $totLitros, 2) : 0;
+        $gral_costo_hs = $totHs > 0 ? round($totGastado / $totHs, 2) : 0;
+
+        echo "<tr class='bg-surface-container font-bold'>";
+        echo "<td class='p-2 text-right'>TOTAL GENERAL</td>";
+        echo "<td class='p-2 text-right'>{$totCargas}</td>";
+        echo "<td class='p-2 text-right font-data-mono'>" . ($totKm > 0 ? number_format($totKm, 0) : '-') . "</td>";
+        echo "<td class='p-2 text-right font-data-mono'>" . ($totHs > 0 ? number_format($totHs, 1) : '-') . "</td>";
+        echo "<td class='p-2 text-right font-data-mono'>" . number_format($totLitros, 2) . " L</td>";
+        echo "<td class='p-2 text-right font-data-mono'>$" . number_format($totGastado, 2) . "</td>";
+        echo "<td class='p-2 text-right font-data-mono'>" . ($gral_km_l > 0 ? number_format($gral_km_l, 2) . " Km/L" : '-') . "</td>";
+        echo "<td class='p-2 text-right font-data-mono'>" . ($gral_l_100 > 0 ? number_format($gral_l_100, 2) . " L/100 Km" : '-') . "</td>";
+        echo "<td class='p-2 text-right font-data-mono'>" . ($gral_costo_km > 0 ? "$" . number_format($gral_costo_km, 2) : '-') . "</td>";
+        echo "<td class='p-2 text-right font-data-mono'>" . ($gral_l_hs > 0 ? number_format($gral_l_hs, 2) . " Hs/L" : '-') . "</td>";
+        echo "<td class='p-2 text-right font-data-mono'>" . ($gral_costo_hs > 0 ? "$" . number_format($gral_costo_hs, 2) : '-') . "</td>";
+        echo "</tr>";
         echo '</tbody></table>';
         break;
 

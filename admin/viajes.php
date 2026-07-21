@@ -343,7 +343,7 @@ require_once __DIR__ . '/../includes/sidebar_admin.php';
 <tr>
 <th class="w-[80px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">FECHA</th>
 <th class="px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CHOFER</th>
-<th class="w-[80px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CAM</th>
+<th class="w-[120px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CAM</th>
 <th class="px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">RECORRIDO</th>
 <th class="w-[100px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">KM</th>
 <th class="w-[70px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">KM REC</th>
@@ -357,7 +357,7 @@ require_once __DIR__ . '/../includes/sidebar_admin.php';
 <tr class="hover:bg-surface-container transition-colors text-[12px]">
 <td class="px-2 py-2 font-data-mono whitespace-nowrap"><?= date('d/m/Y', strtotime($r['fecha'])) ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?>"><?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?></td>
-<td class="px-2 py-2 font-bold whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?><?php if (!empty($r['cachape_patente'])): ?> <span class="text-[9px] text-on-surface-variant font-normal">+<?= htmlspecialchars($r['cachape_patente']) ?></span><?php endif; ?></td>
+<td class="px-2 py-2"><span class="font-bold block whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?></span><?php if (!empty($r['cachape_patente'])): ?><span class="text-[9px] text-on-surface-variant font-normal block whitespace-nowrap">+<?= htmlspecialchars($r['cachape_patente']) ?></span><?php endif; ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['origen'] ?? '') . ' → ' . ($r['destino'] ?? '')) ?>"><?= htmlspecialchars(($r['origen'] ?? '-') . ' → ' . ($r['destino'] ?? '-')) ?></td>
 <td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['por_hora'] ? (number_format($r['hs_salida'], 1) . '&rarr;' . ($r['hs_llegada'] !== null ? number_format($r['hs_llegada'], 1) : '-')) : (number_format($r['km_salida'], 0) . '&rarr;' . ($r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-')) ?></td>
 <td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['por_hora'] ? ($r['hs_recorridas'] !== null ? number_format($r['hs_recorridas'], 1) . ' hs' : '-') : ($r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-') ?></td>
@@ -483,7 +483,7 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <th class="w-[80px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">FECHA</th>
 <th class="w-[55px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">ROL</th>
 <th class="px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CHOFER</th>
-<th class="w-[80px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CAM</th>
+<th class="w-[120px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CAM</th>
 <th class="px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">RECORRIDO</th>
 <th class="w-[100px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">KM</th>
 <th class="w-[70px] px-2 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">KM REC</th>
@@ -505,7 +505,7 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <td class="px-2 py-2 font-data-mono whitespace-nowrap"><?= date('d/m/Y', strtotime($r['fecha'])) ?></td>
 <td class="px-2 py-2 whitespace-nowrap"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase <?= $rolCls ?>"><?= $rol ?></span></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?>"><?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?></td>
-<td class="px-2 py-2 font-bold whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?><?php if (!empty($r['cachape_patente'])): ?> <span class="text-[9px] text-on-surface-variant font-normal">+<?= htmlspecialchars($r['cachape_patente']) ?></span><?php endif; ?></td>
+<td class="px-2 py-2"><span class="font-bold block whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?></span><?php if (!empty($r['cachape_patente'])): ?><span class="text-[9px] text-on-surface-variant font-normal block whitespace-nowrap">+<?= htmlspecialchars($r['cachape_patente']) ?></span><?php endif; ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['origen'] ?? '') . ' → ' . ($r['destino'] ?? '')) ?>"><?= htmlspecialchars(($r['origen'] ?? '-') . ' → ' . ($r['destino'] ?? '-')) ?></td>
 <td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['por_hora'] ? (number_format($r['hs_salida'], 1) . '&rarr;' . ($r['hs_llegada'] !== null ? number_format($r['hs_llegada'], 1) : '-')) : (number_format($r['km_salida'], 0) . '&rarr;' . ($r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-')) ?></td>
 <td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['por_hora'] ? ($r['hs_recorridas'] !== null ? number_format($r['hs_recorridas'], 1) . ' hs' : '-') : ($r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-') ?></td>
@@ -773,11 +773,11 @@ function toggleFieldsByCamion() {
     var calcLabel = document.getElementById('viajeCalculadoLabel');
     
     if (porHora) {
-        kmFields.classList.add('hidden');
+        kmFields.classList.remove('hidden');
         hsFields.classList.remove('hidden');
-        kmSalida.removeAttribute('required');
+        kmSalida.setAttribute('required', 'required');
         hsSalida.setAttribute('required', 'required');
-        calcLabel.innerText = 'Horas Recorridas';
+        calcLabel.innerText = 'KM y HS Recorridos';
     } else {
         kmFields.classList.remove('hidden');
         hsFields.classList.add('hidden');
@@ -942,13 +942,19 @@ function calcKmRec() {
     var porHora = opt && opt.getAttribute('data-por-hora') == '1';
     
     if (porHora) {
-        const s = parseFloat(hsSalida.value) || 0;
-        const l = parseFloat(hsLlegada.value) || 0;
-        kmRecDisplay.innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' hs';
+        const kmS = parseFloat(kmSalida.value) || 0;
+        const kmL = parseFloat(kmLlegada.value) || 0;
+        const hsS = parseFloat(hsSalida.value) || 0;
+        const hsL = parseFloat(hsLlegada.value) || 0;
+        
+        let parts = [];
+        if (kmL >= kmS && kmL > 0) parts.push((kmL - kmS).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' km');
+        if (hsL >= hsS && hsL > 0) parts.push((hsL - hsS).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' hs');
+        kmRecDisplay.innerText = parts.length > 0 ? parts.join(' / ') : '0';
     } else {
         const s = parseFloat(kmSalida.value) || 0;
         const l = parseFloat(kmLlegada.value) || 0;
-        kmRecDisplay.innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' km';
+        kmRecDisplay.innerText = (l - s >= 0 ? l - s : 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' km';
     }
 }
 kmSalida.addEventListener('input', calcKmRec);

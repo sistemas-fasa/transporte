@@ -32,8 +32,10 @@ $gastoMantenimiento = $db->prepare("SELECT COALESCE(SUM(costo),0) as total FROM 
 $gastoMantenimiento->execute([$mes, $anio]);
 $gastoMantData = $gastoMantenimiento->fetch();
 
-// Alertas
-$alertas = $db->query("SELECT a.*, c.patente FROM alertas a LEFT JOIN camiones c ON a.id_referencia = c.id_camion WHERE resuelta = 0 ORDER BY FIELD(severidad,'rojo','amarillo','verde'), fecha_creacion DESC LIMIT 10")->fetchAll();
+// Alertas (Auto-generar antes de consultar)
+require_once __DIR__ . '/../includes/alertas_helper.php';
+generarAlertasAutomaticas($db);
+$alertas = $db->query("SELECT a.*, c.patente FROM alertas a LEFT JOIN camiones c ON a.id_referencia = c.id_camion WHERE resuelta = 0 AND severidad IN ('rojo','amarillo') ORDER BY FIELD(severidad,'rojo','amarillo'), fecha_creacion DESC LIMIT 10")->fetchAll();
 
 // Gasto por camion (mes actual) con KM
 $gastoCamion = $db->prepare("
@@ -72,8 +74,15 @@ $rendimiento = $db->prepare("
 $rendimiento->execute([$mes, $anio, $mes, $anio]);
 $rendimientos = $rendimiento->fetchAll();
 
-// VTV proximas a vencer (3 meses)
-$vtvAlertas = $db->query("SELECT id_camion, patente, marca, modelo, vtv, DATEDIFF(vtv, CURDATE()) as dias_restantes FROM camiones WHERE vtv IS NOT NULL AND vtv <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) ORDER BY vtv ASC")->fetchAll();
+// VTV proximas a vencer (3 meses = 90 dias) - Combina camiones.vtv y tabla vtv
+$vtvAlertas = $db->query("
+    SELECT c.id_camion, c.patente, c.marca, c.modelo,
+           COALESCE(c.vtv, (SELECT MAX(v.fecha_vencimiento) FROM vtv v WHERE v.id_camion = c.id_camion)) as vtv,
+           DATEDIFF(COALESCE(c.vtv, (SELECT MAX(v.fecha_vencimiento) FROM vtv v WHERE v.id_camion = c.id_camion)), CURDATE()) as dias_restantes
+    FROM camiones c
+    HAVING vtv IS NOT NULL AND vtv <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
+    ORDER BY vtv ASC
+")->fetchAll();
 
 // KM por chofer (mes actual) separando viajes como chofer y como ayudante
 $kmChoferList = [];
@@ -121,6 +130,39 @@ $mantenimientoAlertas = $db->query("
     WHERE (c.proximo_mantenimiento_km IS NOT NULL AND GREATEST(COALESCE(c.kilometraje_actual,0), COALESCE((SELECT MAX(hr.km_llegada) FROM km_recorrido hr WHERE hr.id_camion = c.id_camion),0)) >= (c.proximo_mantenimiento_km - 5000))
        OR (c.proximo_mantenimiento_hs IS NOT NULL)
     ORDER BY (CASE WHEN c.proximo_mantenimiento_km IS NOT NULL THEN (c.proximo_mantenimiento_km - GREATEST(COALESCE(c.kilometraje_actual,0), COALESCE((SELECT MAX(hr.km_llegada) FROM km_recorrido hr WHERE hr.id_camion = c.id_camion),0))) ELSE 0 END) ASC
+")->fetchAll();
+
+// Matafuegos proximos a vencer (3 meses = 90 dias)
+$matafuegosAlertas = [];
+if (hasPermission('matafuegos_ver')) {
+    try {
+        $matafuegosAlertas = $db->query("
+            SELECT m.*, c.patente, c.marca, c.modelo, DATEDIFF(m.vencimiento, CURDATE()) as dias_restantes 
+            FROM matafuegos m 
+            LEFT JOIN camiones c ON m.id_camion = c.id_camion 
+            WHERE m.vencimiento IS NOT NULL AND m.vencimiento <= DATE_ADD(CURDATE(), INTERVAL 90 DAY) 
+            ORDER BY m.vencimiento ASC
+        ")->fetchAll();
+    } catch (Exception $e) {}
+}
+// Agregar created_at a km_recorrido si no existe (referencia de hora de salida)
+try { $db->exec("ALTER TABLE km_recorrido ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"); } catch (Exception $e) {}
+
+// Choferes en viaje (planillas abiertas = en curso)
+$choferesEnViaje = $db->query("
+    SELECT h.id_hoja, h.fecha, h.origen, h.destino, h.km_salida,
+           h.created_at as hora_registro,
+           ch.nombre, ch.apellido,
+           ay.nombre as ayudante_nombre, ay.apellido as ayudante_apellido,
+           c.patente, c.marca, c.modelo,
+           cx.patente as cachape_patente
+    FROM km_recorrido h
+    JOIN choferes ch ON h.id_chofer = ch.id_chofer
+    JOIN camiones c ON h.id_camion = c.id_camion
+    LEFT JOIN choferes ay ON h.ayudante_id = ay.id_chofer
+    LEFT JOIN camiones cx ON h.cachape_id = cx.id_camion
+    WHERE h.estado = 'abierto'
+    ORDER BY h.fecha DESC, h.id_hoja DESC
 ")->fetchAll();
 ?>
 
@@ -179,6 +221,80 @@ $mantenimientoAlertas = $db->query("
 
 <!-- Bento Layout -->
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+<?php if (hasRole('Administrador') || hasRole('Bascula') || hasRole('Báscula') || hasRole('DIRECTOR') || hasRole('Director') || hasRole('Inspector') || hasRole('Supervisor')): ?>
+<!-- Choferes en Viaje (full width) -->
+<section class="lg:col-span-12 bg-surface-container-lowest border border-outline-variant rounded-xl p-6 card-modern">
+<div class="flex items-center justify-between mb-5">
+  <div class="flex items-center gap-3">
+    <div class="relative flex h-3 w-3">
+      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+      <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+    </div>
+    <h2 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider">Choferes en Viaje</h2>
+    <?php if (!empty($choferesEnViaje)): ?>
+    <span class="bg-green-100 text-green-700 text-[11px] font-bold px-2 py-0.5 rounded-full border border-green-200"><?= count($choferesEnViaje) ?> ACTIVO<?= count($choferesEnViaje) > 1 ? 'S' : '' ?></span>
+    <?php endif; ?>
+  </div>
+  <a href="<?= BASE_URL ?>/admin/viajes.php" class="text-primary font-bold text-[12px] hover:underline">Ver Viajes</a>
+</div>
+<?php if (empty($choferesEnViaje)): ?>
+<div class="flex flex-col items-center justify-center py-8 text-on-surface-variant gap-2">
+  <span class="material-symbols-outlined text-4xl text-outline">local_shipping</span>
+  <p class="text-sm">No hay choferes en viaje en este momento</p>
+</div>
+<?php else: ?>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+<?php foreach ($choferesEnViaje as $v): ?>
+<div class="group relative bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 hover:shadow-md transition-all duration-200 hover:border-green-400">
+  <!-- Pulse indicator -->
+  <div class="absolute top-3 right-3 flex h-2.5 w-2.5">
+    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+  </div>
+  <!-- Chofer -->
+  <div class="flex items-center gap-2 mb-3">
+    <div class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+      <span class="material-symbols-outlined text-primary text-[18px]">person</span>
+    </div>
+    <div class="min-w-0">
+      <p class="font-bold text-[13px] text-on-surface uppercase truncate"><?= htmlspecialchars($v['apellido'] . ', ' . $v['nombre']) ?></p>
+      <?php if (!empty($v['ayudante_nombre'])): ?>
+      <p class="text-[10px] text-on-surface-variant truncate">+ <?= htmlspecialchars($v['ayudante_apellido'] . ' ' . $v['ayudante_nombre']) ?></p>
+      <?php endif; ?>
+    </div>
+  </div>
+  <!-- Camion -->
+  <div class="flex items-center gap-1.5 mb-3">
+    <span class="material-symbols-outlined text-[16px] text-primary">local_shipping</span>
+    <span class="font-bold text-[13px] text-primary"><?= htmlspecialchars($v['patente']) ?></span>
+    <?php if (!empty($v['cachape_patente'])): ?>
+    <span class="text-[10px] text-on-surface-variant">+<?= htmlspecialchars($v['cachape_patente']) ?></span>
+    <?php endif; ?>
+    <span class="text-[10px] text-on-surface-variant truncate ml-1"><?= htmlspecialchars($v['marca'] . ' ' . $v['modelo']) ?></span>
+  </div>
+  <!-- Ruta -->
+  <?php if (!empty($v['origen']) || !empty($v['destino'])): ?>
+  <div class="flex items-center gap-1 text-[11px] text-on-surface-variant mb-2">
+    <span class="material-symbols-outlined text-[13px]">route</span>
+    <span class="truncate font-medium"><?= htmlspecialchars(($v['origen'] ?: '?') . ' → ' . ($v['destino'] ?: '?')) ?></span>
+  </div>
+  <?php endif; ?>
+  <!-- Fecha y hora de salida -->
+  <div class="flex items-center justify-between text-[10px] text-on-surface-variant border-t border-green-200 pt-2 mt-2">
+    <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">calendar_today</span><?= date('d/m/Y', strtotime($v['fecha'])) ?></span>
+    <?php if (!empty($v['hora_registro']) && $v['hora_registro'] !== '0000-00-00 00:00:00'): ?>
+    <span class="flex items-center gap-1 text-green-700 font-semibold"><span class="material-symbols-outlined text-[12px]">schedule</span>Salida: <?= date('H:i', strtotime($v['hora_registro'])) ?></span>
+    <?php endif; ?>
+  </div>
+</div>
+<?php endforeach; ?>
+</div>
+<?php endif; ?>
+</section>
+<?php endif; ?>
+
+
 <!-- Alertas -->
 <section class="lg:col-span-7 bg-surface-container-lowest border border-outline-variant rounded-xl p-6 card-modern">
 <div class="flex items-center justify-between mb-6">
@@ -189,7 +305,7 @@ $mantenimientoAlertas = $db->query("
 <?php if (empty($alertas)): ?>
 <p class="text-on-surface-variant text-center py-8">No hay alertas activas</p>
 <?php else: ?>
-<?php foreach (array_slice($alertas, 0, 5) as $alerta):
+<?php foreach ($alertas as $alerta):
 $severidadConfig = [
 'rojo' => ['bg' => 'bg-red-50', 'border' => 'border-red-600', 'icon' => 'warning', 'text' => 'bg-red-600', 'label' => 'CRITICO', 'labelText' => 'text-red-700', 'title' => 'text-red-900', 'desc' => 'text-red-800'],
 'amarillo' => ['bg' => 'bg-amber-50', 'border' => 'border-amber-500', 'icon' => 'oil_barrel', 'text' => 'bg-amber-500', 'label' => 'ADVERTENCIA', 'labelText' => 'text-amber-700', 'title' => 'text-amber-900', 'desc' => 'text-amber-800'],
@@ -218,7 +334,7 @@ $patente = $alerta['patente'] ?? '';
 <!-- Gasto por camion -->
 <section class="lg:col-span-5 bg-surface-container-lowest border border-outline-variant rounded-xl p-6 flex flex-col card-modern">
 <h2 class="font-headline-sm text-headline-sm text-primary uppercase tracking-wider mb-6">Gasto por Camion (Mes)</h2>
-<div class="flex-1 flex flex-col justify-end gap-2">
+<div class="flex-1 flex flex-col justify-start gap-2">
 <div class="space-y-4">
 <?php foreach ($gastoCamiones as $gc):
     $width = $maxGasto > 0 ? ($gc['total'] / $maxGasto * 100) : 0;
@@ -260,13 +376,13 @@ $patente = $alerta['patente'] ?? '';
 </div>
 <?php endif; ?>
 
-<?php if (hasPermission('vehiculos_ver') && !empty($vtvAlertas)): ?>
+<?php if ((hasPermission('vehiculos_ver') || hasPermission('alertas_ver') || hasRole('inspector') || hasRole('Inspector')) && !empty($vtvAlertas)): ?>
 <!-- VTV Proximas a Vencer -->
 <section class="mt-8">
 <div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden card-modern">
 <div class="p-6 border-b border-outline-variant flex items-center gap-2">
 <span class="material-symbols-outlined text-red-600">assignment</span>
-<h3 class="font-headline-sm text-headline-sm text-primary uppercase">VTV Proximas a Vencer (3 Meses)</h3>
+<h3 class="font-headline-sm text-headline-sm text-primary uppercase">VTV Próximas a Vencer (3 Meses)</h3>
 </div>
 <div class="divide-y divide-outline-variant">
 <?php foreach ($vtvAlertas as $v):
@@ -329,7 +445,46 @@ else { $c = 'gray'; $label = '-'; }
 </section>
 <?php endif; ?>
 
-<!-- Secondary Section -->
+<?php if ((hasPermission('matafuegos_ver') || hasPermission('alertas_ver') || hasRole('inspector') || hasRole('Inspector')) && !empty($matafuegosAlertas)): ?>
+<!-- Matafuegos Proximos a Vencer (3 Meses) -->
+<section class="mt-8">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden card-modern">
+<div class="p-6 border-b border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-red-600">fire_extinguisher</span>
+<h3 class="font-headline-sm text-headline-sm text-primary uppercase">Matafuegos Próximos a Vencer (3 Meses)</h3>
+</div>
+<a href="<?= BASE_URL ?>/admin/matafuegos.php" class="text-primary font-bold text-xs hover:underline flex items-center gap-1">
+Gestionar <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+<div class="divide-y divide-outline-variant">
+<?php foreach ($matafuegosAlertas as $mf):
+$dias = (int)$mf['dias_restantes'];
+if ($dias < 0) { $c = 'red'; $label = 'VENCIDO (' . abs($dias) . ' días)'; }
+elseif ($dias <= 30) { $c = 'red'; $label = "$dias días"; }
+else { $c = 'amber'; $label = "$dias días"; }
+$lugar = $mf['patente'] ? htmlspecialchars($mf['patente'] . ' - ' . $mf['marca'] . ' ' . $mf['modelo']) : htmlspecialchars('Sector: ' . $mf['sector']);
+?>
+<div class="p-4 flex items-center gap-4 hover:bg-surface-container/50 transition-colors">
+<div class="w-10 h-10 rounded-full bg-<?= $c === 'amber' ? 'amber' : 'red' ?>-100 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-<?= $c === 'amber' ? 'amber' : 'red' ?>-600">fire_extinguisher</span>
+</div>
+<div class="flex-1">
+<div class="flex items-center gap-2">
+<p class="font-bold">Matafuego N° <?= htmlspecialchars($mf['numero']) ?></p>
+<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-700 border border-blue-200">Clase <?= htmlspecialchars($mf['clase']) ?></span>
+</div>
+<p class="text-sm text-on-surface-variant font-medium mt-0.5"><?= $lugar ?></p>
+<p class="text-xs text-on-surface-variant">Vence: <strong class="text-primary"><?= date('d/m/Y', strtotime($mf['vencimiento'])) ?></strong><?= $mf['recarga'] ? ' | Última recarga: ' . date('d/m/Y', strtotime($mf['recarga'])) : '' ?></p>
+</div>
+<span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase bg-<?= $c === 'amber' ? 'amber' : 'red' ?>-100 text-<?= $c === 'amber' ? 'amber' : 'red' ?>-800 border border-<?= $c === 'amber' ? 'amber' : 'red' ?>-200"><?= $label ?></span>
+</div>
+<?php endforeach; ?>
+</div>
+</div>
+</section>
+<?php endif; ?>
 <section class="mt-8">
 <div class="bg-surface-container-lowest border border-outline-variant overflow-hidden">
 <div class="p-6 border-b border-outline-variant">

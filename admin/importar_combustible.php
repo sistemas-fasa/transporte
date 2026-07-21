@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importar'])) {
         $omitidos = 0;
         $errores = [];
         $idUsuario = getCurrentUserId();
+        $camionesAfectados = [];
 
         foreach ($lineas as $num => $linea) {
             $linea = trim($linea);
@@ -106,9 +107,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importar'])) {
                 $stmtIns = $db->prepare("INSERT INTO combustible (fecha, id_chofer, id_camion, estacion_servicio, litros, precio_litro, kilometraje_al_cargar, id_usuario_registra) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmtIns->execute([$fechaDt, $idChofer, $idCamion, $estacion, $litros, $precioLitro, $kmAlCargar, $idUsuario]);
                 $importados++;
+                $camionesAfectados[$idCamion] = true;
             } catch (Exception $e) {
                 $errores[] = "Linea " . ($num + 1) . ": " . $e->getMessage();
             }
+        }
+
+        foreach (array_keys($camionesAfectados) as $idCamion) {
+            recalcularCombustibleCamion($idCamion);
         }
 
         $resultado = [

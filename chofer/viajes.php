@@ -395,7 +395,7 @@ else $badge = 'bg-amber-100 text-amber-800';
 <div class="grid grid-cols-2 gap-4" id="kmFields">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Salida</label>
-<input type="number" step="0.1" name="km_salida" id="viajeKmSalida" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
+<input type="number" step="0.1" name="km_salida" id="viajeKmSalida" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" oninput="calcKmRec()" required/>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Llegada <span class="text-on-surface-variant text-[10px]">(opcional, dejar vacio)</span></label>
@@ -405,7 +405,7 @@ else $badge = 'bg-amber-100 text-amber-800';
 <div class="grid grid-cols-2 gap-4 hidden" id="hsFields">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Salida (Horas)</label>
-<input type="number" step="0.1" name="hs_salida" id="viajeHsSalida" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+<input type="number" step="0.1" name="hs_salida" id="viajeHsSalida" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" oninput="calcKmRec()"/>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Llegada (Horas) <span class="text-on-surface-variant text-[10px]">(opcional, dejar vacio)</span></label>
@@ -525,11 +525,11 @@ function toggleFieldsByCamion() {
     var calcLabel = document.getElementById('viajeCalculadoLabel');
     
     if (porHora) {
-        kmFields.classList.add('hidden');
+        kmFields.classList.remove('hidden');
         hsFields.classList.remove('hidden');
-        kmSalida.removeAttribute('required');
+        kmSalida.setAttribute('required', 'required');
         hsSalida.setAttribute('required', 'required');
-        calcLabel.innerText = 'Horas Recorridas';
+        calcLabel.innerText = 'KM y HS Recorridos';
     } else {
         kmFields.classList.remove('hidden');
         hsFields.classList.add('hidden');
@@ -563,13 +563,19 @@ function calcKmRec() {
     var porHora = opt && opt.getAttribute('data-por-hora') == '1';
     
     if (porHora) {
-        const s = parseFloat(document.getElementById('viajeHsSalida').value) || 0;
-        const l = parseFloat(document.getElementById('viajeHsLlegada').value) || 0;
-        document.getElementById('viajeKmRec').innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' hs';
+        const kmS = parseFloat(document.getElementById('viajeKmSalida').value) || 0;
+        const kmL = parseFloat(document.getElementById('viajeKmLlegada').value) || 0;
+        const hsS = parseFloat(document.getElementById('viajeHsSalida').value) || 0;
+        const hsL = parseFloat(document.getElementById('viajeHsLlegada').value) || 0;
+        
+        let parts = [];
+        if (kmL >= kmS && kmL > 0) parts.push((kmL - kmS).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' km');
+        if (hsL >= hsS && hsL > 0) parts.push((hsL - hsS).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' hs');
+        document.getElementById('viajeKmRec').innerText = parts.length > 0 ? parts.join(' / ') : '0';
     } else {
         const s = parseFloat(document.getElementById('viajeKmSalida').value) || 0;
         const l = parseFloat(document.getElementById('viajeKmLlegada').value) || 0;
-        document.getElementById('viajeKmRec').innerText = (l - s).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' km';
+        document.getElementById('viajeKmRec').innerText = (l - s >= 0 ? l - s : 0).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' km';
     }
 }
 

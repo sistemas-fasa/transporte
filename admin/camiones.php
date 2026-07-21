@@ -75,12 +75,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tipo = $_POST['tipo'] ?? 'camion';
         $empresa_id = !empty($_POST['empresa_id']) ? (int)$_POST['empresa_id'] : null;
         $por_hora = isset($_POST['por_hora']) ? 1 : 0;
+        $horas_actuales = !empty($_POST['horas_actuales']) ? (float)$_POST['horas_actuales'] : 0;
 
         if ($action === 'create') {
             try {
-                $stmt = $db->prepare("INSERT INTO camiones (patente, marca, modelo, anio, kilometraje_actual, capacidad_tanque, vtv, tara, proximo_mantenimiento_km, proximo_mantenimiento_hs, estado, tipo, empresa_id, por_hora) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $por_hora]);
+                $stmt = $db->prepare("INSERT INTO camiones (patente, marca, modelo, anio, kilometraje_actual, horas_actuales, capacidad_tanque, vtv, tara, proximo_mantenimiento_km, proximo_mantenimiento_hs, estado, tipo, empresa_id, por_hora) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $horas_actuales, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $por_hora]);
                 $idCamion = $db->lastInsertId();
+                if ($vtv) {
+                    $db->prepare("UPDATE alertas SET resuelta = 1 WHERE tipo = 'vencimiento_vtv' AND id_referencia = ? AND resuelta = 0")->execute([$idCamion]);
+                }
                 registrarAuditoria(getCurrentUserId(), 'create', 'camiones', $idCamion, "Creo vehiculo $patente");
                 $mensaje = 'Vehiculo creado exitosamente';
             } catch (Exception $e) {
@@ -89,8 +93,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $id = (int)($_POST['id_camion'] ?? 0);
             try {
-                $stmt = $db->prepare("UPDATE camiones SET patente=?, marca=?, modelo=?, anio=?, kilometraje_actual=?, capacidad_tanque=?, vtv=?, tara=?, proximo_mantenimiento_km=?, proximo_mantenimiento_hs=?, estado=?, tipo=?, empresa_id=?, por_hora=? WHERE id_camion=?");
-                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $por_hora, $id]);
+                $stmt = $db->prepare("UPDATE camiones SET patente=?, marca=?, modelo=?, anio=?, kilometraje_actual=?, horas_actuales=?, capacidad_tanque=?, vtv=?, tara=?, proximo_mantenimiento_km=?, proximo_mantenimiento_hs=?, estado=?, tipo=?, empresa_id=?, por_hora=? WHERE id_camion=?");
+                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $horas_actuales, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $por_hora, $id]);
+                if ($vtv) {
+                    $db->prepare("UPDATE alertas SET resuelta = 1 WHERE tipo = 'vencimiento_vtv' AND id_referencia = ? AND resuelta = 0")->execute([$id]);
+                }
                 registrarAuditoria(getCurrentUserId(), 'update', 'camiones', $id, "Actualizo vehiculo $patente");
                 $mensaje = 'Vehiculo actualizado exitosamente';
             } catch (Exception $e) {
@@ -260,8 +267,13 @@ $tipoLabel = $tipoLabels[$tipo] ?? $tipo;
 </div>
 <div class="grid grid-cols-3 gap-2 mb-6">
 <div class="bg-surface-container-low p-3 rounded-lg">
-<p class="text-[10px] font-label-caps text-on-surface-variant uppercase"><?= $camion['por_hora'] ? 'Horas' : 'Kilometraje' ?></p>
-<p class="font-data-mono text-primary text-sm"><?= number_format($camion['kilometraje_actual'], 0) ?> <?= $camion['por_hora'] ? 'HS' : 'KM' ?></p>
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase">KM / HS</p>
+<p class="font-data-mono text-primary text-sm">
+    <?= number_format($camion['kilometraje_actual'], 0) ?> KM
+    <?php if ($camion['por_hora']): ?>
+        / <?= number_format($camion['horas_actuales'], 1) ?> HS
+    <?php endif; ?>
+</p>
 </div>
 <div class="bg-surface-container-low p-3 rounded-lg">
 <p class="text-[10px] font-label-caps text-on-surface-variant uppercase">Tanque</p>
@@ -350,7 +362,11 @@ Historial
 <label id="camkmLabel" class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje</label>
 <input name="kilometraje_actual" type="number" step="0.01" id="camkm" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none"/>
 </div>
-<div class="flex flex-col gap-1">
+<div class="flex flex-col gap-1 hidden" id="camhorasContainer">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Horas Actuales (Horómetro)</label>
+<input name="horas_actuales" type="number" step="0.01" id="camhoras" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none"/>
+</div>
+<div class="flex flex-col gap-1" id="camtanqueContainer">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Cap. Tanque (L)</label>
 <input name="capacidad_tanque" type="number" step="0.01" id="camtanque" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none"/>
 </div>
@@ -474,6 +490,7 @@ document.getElementById('cammarca').value = data.marca;
 document.getElementById('cammodelo').value = data.modelo;
 document.getElementById('camanio').value = data.anio;
 document.getElementById('camkm').value = data.kilometraje_actual;
+document.getElementById('camhoras').value = data.horas_actuales || '';
 document.getElementById('camtanque').value = data.capacidad_tanque;
 document.getElementById('camvtv').value = data.vtv || '';
 document.getElementById('camtara').value = data.tara || '';
@@ -496,12 +513,17 @@ const camkmLabel = document.getElementById('camkmLabel');
 const camkm = document.getElementById('camkm');
 
 function updateCamionFields() {
+    var horasContainer = document.getElementById('camhorasContainer');
+    var camkmLabel = document.getElementById('camkmLabel');
     if (camporhora && camporhora.checked) {
-        if (camkmLabel) camkmLabel.textContent = 'Horas Actuales (Horómetro)';
-        if (camkm) camkm.placeholder = 'Ej. 3450';
+        if (camkmLabel) camkmLabel.textContent = 'Kilometraje Actual';
+        if (horasContainer) horasContainer.classList.remove('hidden');
     } else {
         if (camkmLabel) camkmLabel.textContent = 'Kilometraje';
-        if (camkm) camkm.placeholder = 'Ej. 124500';
+        if (horasContainer) {
+            horasContainer.classList.add('hidden');
+            document.getElementById('camhoras').value = '';
+        }
     }
 }
 
@@ -517,6 +539,7 @@ document.getElementById('cammarca').value = '';
 document.getElementById('cammodelo').value = '';
 document.getElementById('camanio').value = '';
 document.getElementById('camkm').value = '';
+document.getElementById('camhoras').value = '';
 document.getElementById('camtanque').value = '';
 document.getElementById('camvtv').value = '';
 document.getElementById('camtara').value = '';

@@ -3,10 +3,150 @@ require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
 requirePermission('combustible_ver');
 $pageTitle = 'Gestion de Combustible';
+
+$db = getDB();
+
+// POST handlers
+$mensaje = '';
+$error = '';
+
+if (isset($_GET['ok'])) {
+    if ($_GET['ok'] === 'created') $mensaje = 'Carga de combustible registrada exitosamente';
+    if ($_GET['ok'] === 'updated') $mensaje = 'Carga actualizada exitosamente';
+    if ($_GET['ok'] === 'deleted') $mensaje = 'Carga eliminada';
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update') {
+    $id = (int)($_POST['id_combustible'] ?? 0);
+    $id_chofer = (int)($_POST['id_chofer'] ?? 0);
+    $id_camion = (int)($_POST['id_camion'] ?? 0);
+    $fecha = $_POST['fecha'] ?? date('Y-m-d H:i:s');
+    $estacion = trim($_POST['estacion_servicio'] ?? '');
+    $litros = (float)($_POST['litros'] ?? 0);
+    $precio_litro = (float)($_POST['precio_litro'] ?? 0);
+    $km_carga = isset($_POST['kilometraje']) && $_POST['kilometraje'] !== '' ? (float)$_POST['kilometraje'] : null;
+    $horas_carga = isset($_POST['horas_al_cargar']) && $_POST['horas_al_cargar'] !== '' ? (float)$_POST['horas_al_cargar'] : null;
+
+    try {
+        // Get old id_camion before updating
+        $stmtOld = $db->prepare("SELECT id_camion FROM combustible WHERE id_combustible = ?");
+        $stmtOld->execute([$id]);
+        $old_camion = (int)$stmtOld->fetchColumn();
+
+        $stmt = $db->prepare("UPDATE combustible SET fecha=?, id_chofer=?, id_camion=?, estacion_servicio=?, litros=?, precio_litro=?, kilometraje_al_cargar=?, horas_al_cargar=? WHERE id_combustible=?");
+        $stmt->execute([$fecha, $id_chofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $horas_carga, $id]);
+        
+        $stmtCam = $db->prepare("SELECT por_hora FROM camiones WHERE id_camion = ?");
+        $stmtCam->execute([$id_camion]);
+        $isPorHora = (int)$stmtCam->fetchColumn();
+
+        if ($isPorHora) {
+            if ($km_carga > 0) {
+                $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+            }
+            if ($horas_carga > 0) {
+                $db->prepare("UPDATE camiones SET horas_actuales = ? WHERE id_camion = ?")->execute([$horas_carga, $id_camion]);
+            }
+        } else {
+            if ($km_carga > 0) {
+                $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+            }
+        }
+
+        // Recalculate fuel calculations for new and old truck
+        recalcularCombustibleCamion($id_camion);
+        if ($old_camion && $old_camion !== $id_camion) {
+            recalcularCombustibleCamion($old_camion);
+        }
+
+        header('Location: ' . BASE_URL . '/admin/combustible.php?ok=updated');
+        exit;
+    } catch (Exception $e) {
+        $error = 'Error: ' . $e->getMessage();
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
+    $id = (int)($_POST['id_combustible'] ?? 0);
+    try {
+        // Get old id_camion before deleting
+        $stmtOld = $db->prepare("SELECT id_camion FROM combustible WHERE id_combustible = ?");
+        $stmtOld->execute([$id]);
+        $old_camion = (int)$stmtOld->fetchColumn();
+
+        $stmt = $db->prepare("DELETE FROM combustible WHERE id_combustible = ?");
+        $stmt->execute([$id]);
+
+        // Recalculate calculations for the truck
+        if ($old_camion) {
+            recalcularCombustibleCamion($old_camion);
+        }
+
+        header('Location: ' . BASE_URL . '/admin/combustible.php?ok=deleted');
+        exit;
+    } catch (Exception $e) {
+        $error = 'Error al eliminar: ' . $e->getMessage();
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create') {
+    $id_chofer = (int)($_POST['id_chofer'] ?? 0);
+    $id_camion = (int)($_POST['id_camion'] ?? 0);
+    $fecha = $_POST['fecha'] ?? date('Y-m-d H:i:s');
+    $estacion = trim($_POST['estacion_servicio'] ?? '');
+    $litros = (float)($_POST['litros'] ?? 0);
+    $precio_litro = (float)($_POST['precio_litro'] ?? 0);
+    $km_carga = isset($_POST['kilometraje']) && $_POST['kilometraje'] !== '' ? (float)$_POST['kilometraje'] : null;
+    $horas_carga = isset($_POST['horas_al_cargar']) && $_POST['horas_al_cargar'] !== '' ? (float)$_POST['horas_al_cargar'] : null;
+
+    try {
+        // Verificar registro duplicado en los últimos 2 minutos
+        $stmtDup = $db->prepare("SELECT id_combustible FROM combustible WHERE id_chofer = ? AND id_camion = ? AND ABS(litros - ?) < 0.001 AND fecha >= (NOW() - INTERVAL 2 MINUTE) LIMIT 1");
+        $stmtDup->execute([$id_chofer, $id_camion, $litros]);
+        if ($stmtDup->fetchColumn()) {
+            $error = 'Esta carga de combustible ya fue registrada hace unos momentos. Se evitó el registro duplicado.';
+        } else {
+            $foto_ticket = null;
+            if (isset($_FILES['foto_ticket']) && $_FILES['foto_ticket']['error'] === UPLOAD_ERR_OK) {
+                $ext = pathinfo($_FILES['foto_ticket']['name'], PATHINFO_EXTENSION);
+                $foto_ticket = 'ticket_' . uniqid() . '.' . $ext;
+                @move_uploaded_file($_FILES['foto_ticket']['tmp_name'], UPLOAD_DIR . 'tickets/' . $foto_ticket);
+            }
+
+            $stmt = $db->prepare("INSERT INTO combustible (fecha, id_chofer, id_camion, estacion_servicio, litros, precio_litro, kilometraje_al_cargar, horas_al_cargar, foto_ticket, id_usuario_registra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$fecha, $id_chofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $horas_carga, $foto_ticket, getCurrentUserId()]);
+            
+            $stmtCam = $db->prepare("SELECT por_hora FROM camiones WHERE id_camion = ?");
+            $stmtCam->execute([$id_camion]);
+            $isPorHora = (int)$stmtCam->fetchColumn();
+
+            if ($isPorHora) {
+                if ($km_carga > 0) {
+                    $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+                }
+                if ($horas_carga > 0) {
+                    $db->prepare("UPDATE camiones SET horas_actuales = ? WHERE id_camion = ?")->execute([$horas_carga, $id_camion]);
+                }
+            } else {
+                if ($km_carga > 0) {
+                    $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+                }
+            }
+
+            // Recalculate fuel calculations for this truck
+            recalcularCombustibleCamion($id_camion);
+
+            header('Location: ' . BASE_URL . '/admin/combustible.php?ok=created');
+            exit;
+        }
+    } catch (Exception $e) {
+        $error = 'Error: ' . $e->getMessage();
+    }
+}
+
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
 
-$db = getDB();
 $mes = date('m');
 $anio = date('Y');
 
@@ -84,70 +224,7 @@ $registros = $db->prepare($sql);
 $registros->execute($params);
 $registrosList = $registros->fetchAll();
 
-// POST handlers
-$mensaje = '';
-$error = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update') {
-    $id = (int)($_POST['id_combustible'] ?? 0);
-    $id_chofer = (int)($_POST['id_chofer'] ?? 0);
-    $id_camion = (int)($_POST['id_camion'] ?? 0);
-    $fecha = $_POST['fecha'] ?? date('Y-m-d H:i:s');
-    $estacion = trim($_POST['estacion_servicio'] ?? '');
-    $litros = (float)($_POST['litros'] ?? 0);
-    $precio_litro = (float)($_POST['precio_litro'] ?? 0);
-    $km_carga = (float)($_POST['kilometraje'] ?? 0);
-
-    try {
-        $stmt = $db->prepare("UPDATE combustible SET fecha=?, id_chofer=?, id_camion=?, estacion_servicio=?, litros=?, precio_litro=?, kilometraje_al_cargar=? WHERE id_combustible=?");
-        $stmt->execute([$fecha, $id_chofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $id]);
-        if ($km_carga > 0) {
-            $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
-        }
-        $mensaje = 'Carga actualizada exitosamente';
-    } catch (Exception $e) {
-        $error = 'Error: ' . $e->getMessage();
-    }
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
-    $id = (int)($_POST['id_combustible'] ?? 0);
-    try {
-        $stmt = $db->prepare("DELETE FROM combustible WHERE id_combustible = ?");
-        $stmt->execute([$id]);
-        $mensaje = 'Carga eliminada';
-    } catch (Exception $e) {
-        $error = 'Error al eliminar: ' . $e->getMessage();
-    }
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create') {
-    $id_chofer = (int)($_POST['id_chofer'] ?? 0);
-    $id_camion = (int)($_POST['id_camion'] ?? 0);
-    $fecha = $_POST['fecha'] ?? date('Y-m-d H:i:s');
-    $estacion = trim($_POST['estacion_servicio'] ?? '');
-    $litros = (float)($_POST['litros'] ?? 0);
-    $precio_litro = (float)($_POST['precio_litro'] ?? 0);
-    $km_carga = (float)($_POST['kilometraje'] ?? 0);
-
-    $foto_ticket = null;
-    if (isset($_FILES['foto_ticket']) && $_FILES['foto_ticket']['error'] === UPLOAD_ERR_OK) {
-        $ext = pathinfo($_FILES['foto_ticket']['name'], PATHINFO_EXTENSION);
-        $foto_ticket = 'ticket_' . uniqid() . '.' . $ext;
-        @move_uploaded_file($_FILES['foto_ticket']['tmp_name'], UPLOAD_DIR . 'tickets/' . $foto_ticket);
-    }
-
-    try {
-        $stmt = $db->prepare("INSERT INTO combustible (fecha, id_chofer, id_camion, estacion_servicio, litros, precio_litro, kilometraje_al_cargar, foto_ticket, id_usuario_registra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$fecha, $id_chofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $foto_ticket, getCurrentUserId()]);
-        if ($km_carga > 0) {
-            $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
-        }
-        $mensaje = 'Carga de combustible registrada exitosamente';
-    } catch (Exception $e) {
-        $error = 'Error: ' . $e->getMessage();
-    }
-}
 
 if ($esRestringido && $idChoferRestriccion) {
     $camionesList = $db->prepare("SELECT DISTINCT c.id_camion, c.patente, c.marca, c.modelo, c.por_hora FROM camiones c LEFT JOIN asignaciones a ON c.id_camion = a.id_camion AND a.activa = 1 LEFT JOIN vehiculos_usuarios vu ON c.id_camion = vu.vehiculo_id WHERE c.estado='activo' AND (a.id_chofer = ? OR vu.usuario_id = ?) ORDER BY c.patente");
@@ -244,12 +321,13 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 <thead class="bg-surface-container-high/50">
 <tr>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">FECHA</th>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CHOFER</th>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CAMION</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">VEHÍCULO / CHOFER</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">ESTACION</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">LITROS</th>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">P. LITRO</th>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">TOTAL</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">IMPORTE (P/L)</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">ODÓMETRO (RECORRIDO)</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">RENDIMIENTO / CONSUMO</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">COSTO RECORRIDO</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-center">TICKET</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-center">ACCIONES</th>
 </tr>
@@ -257,13 +335,61 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 <tbody class="divide-y divide-outline-variant" id="tableBody">
 <?php foreach ($registrosList as $r): ?>
 <tr class="hover:bg-surface-container transition-colors">
-<td class="px-4 py-3 font-data-mono"><?= date('d/m/Y H:i', strtotime($r['fecha'])) ?></td>
-<td class="px-4 py-3"><?= htmlspecialchars($r['apellido'] . ', ' . $r['nombre']) ?></td>
-<td class="px-4 py-3 font-bold"><?= htmlspecialchars($r['patente']) ?></td>
-<td class="px-4 py-3"><?= htmlspecialchars($r['estacion_servicio'] ?? '-') ?></td>
-<td class="px-4 py-3 text-right font-data-mono"><?= number_format($r['litros'], 2) ?></td>
-<td class="px-4 py-3 text-right font-data-mono">$<?= number_format($r['precio_litro'], 3) ?></td>
-<td class="px-4 py-3 text-right font-data-mono font-bold">$<?= number_format($r['litros'] * $r['precio_litro'], 2) ?></td>
+<td class="px-4 py-3 font-data-mono text-sm"><?= date('d/m/Y H:i', strtotime($r['fecha'])) ?></td>
+<td class="px-4 py-3">
+    <div class="font-bold text-primary"><?= htmlspecialchars($r['patente']) ?></div>
+    <div class="text-xs text-on-surface-variant"><?= htmlspecialchars($r['apellido'] . ', ' . $r['nombre']) ?></div>
+</td>
+<td class="px-4 py-3 text-sm"><?= htmlspecialchars($r['estacion_servicio'] ?? '-') ?></td>
+<td class="px-4 py-3 text-right font-data-mono text-xs whitespace-nowrap"><?= number_format($r['litros'], 2) ?> L</td>
+<td class="px-4 py-3 text-right font-data-mono text-sm">
+    <div class="font-bold">$<?= number_format($r['litros'] * $r['precio_litro'], 2) ?></div>
+    <div class="text-xs text-on-surface-variant">$<?= number_format($r['precio_litro'], 2) ?>/L</div>
+</td>
+<td class="px-4 py-3 text-right font-data-mono text-sm">
+    <div>
+        <?php 
+            $parts = [];
+            if ($r['kilometraje_al_cargar'] !== null && $r['kilometraje_al_cargar'] > 0) $parts[] = number_format($r['kilometraje_al_cargar'], 0) . ' KM';
+            if ($r['horas_al_cargar'] !== null && $r['horas_al_cargar'] > 0) $parts[] = number_format($r['horas_al_cargar'], 1) . ' HS';
+            echo !empty($parts) ? implode(' / ', $parts) : '-';
+        ?>
+    </div>
+    <div class="text-xs font-bold mt-0.5">
+        <?php
+            if ($r['error_consumo']) {
+                echo '<span class="text-amber-600" title="' . htmlspecialchars($r['error_consumo']) . '">⚠️ Error</span>';
+            } else {
+                $parts = [];
+                if ($r['km_recorridos'] !== null) $parts[] = '+' . number_format($r['km_recorridos'], 0) . ' KM';
+                if ($r['hs_recorridas'] !== null) $parts[] = '+' . number_format($r['hs_recorridas'], 1) . ' HS';
+                echo !empty($parts) ? '<span class="text-green-600">' . implode(' / ', $parts) . '</span>' : '<span class="text-on-surface-variant">-</span>';
+            }
+        ?>
+    </div>
+</td>
+<td class="px-4 py-3 text-right font-data-mono text-sm">
+    <?php if ($r['error_consumo']): ?>
+        <span class="text-on-surface-variant text-xs">-</span>
+    <?php else: ?>
+        <?php if ($r['litros_cada_100km'] !== null): ?>
+            <div class="font-bold text-blue-600 text-xs whitespace-nowrap"><?= number_format($r['litros_cada_100km'], 2) ?> L/100 Km</div>
+            <div class="text-[10px] text-on-surface-variant whitespace-nowrap"><?= number_format($r['km_por_litro'], 2) ?> Km/L</div>
+        <?php elseif ($r['litros_por_hora'] !== null): ?>
+            <div class="font-bold text-blue-600 text-xs whitespace-nowrap"><?= number_format($r['litros_por_hora'], 2) ?> Hs/L</div>
+        <?php else: ?>
+            <span class="text-on-surface-variant text-xs">-</span>
+        <?php endif; ?>
+    <?php endif; ?>
+</td>
+<td class="px-4 py-3 text-right font-data-mono text-sm">
+    <?php
+        $parts = [];
+        if ($r['costo_por_km'] !== null) $parts[] = '$' . number_format($r['costo_por_km'], 2) . '/Km';
+        if ($r['costo_por_hora'] !== null) $parts[] = '$' . number_format($r['costo_por_hora'], 2) . '/Hs';
+        echo !empty($parts) ? implode('<br>', $parts) : '-';
+    ?>
+</td>
 <td class="px-4 py-3 text-center">
 <?php if ($r['foto_ticket']): ?>
 <a href="<?= BASE_URL ?>/assets/uploads/tickets/<?= $r['foto_ticket'] ?>" target="_blank" class="text-primary underline text-xs">Ver</a>
@@ -291,7 +417,7 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 <h3 id="modalCombustibleTitle" class="font-headline-sm text-headline-sm text-primary">Nueva Carga de Combustible</h3>
 <button onclick="closeModal('modalCombustible')"><span class="material-symbols-outlined">close</span></button>
 </div>
-<form method="POST" enctype="multipart/form-data" class="p-6 space-y-4">
+<form id="adminFuelForm" method="POST" enctype="multipart/form-data" class="p-6 space-y-4">
 <input type="hidden" name="action" id="combAction" value="create"/>
 <input type="hidden" name="id_combustible" id="combId" value=""/>
 <div class="grid grid-cols-2 gap-4">
@@ -336,16 +462,20 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 <div class="grid grid-cols-2 gap-4">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Litros</label>
-<input name="litros" id="modLitros" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
+<input name="litros" id="modLitros" type="number" step="any" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Precio x Litro ($)</label>
-<input name="precio_litro" id="modPrecio" type="number" step="0.001" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
+<input name="precio_litro" id="modPrecio" type="number" step="any" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
 </div>
 </div>
 <div class="flex flex-col gap-1">
 <label id="kmLabel" class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje</label>
-<input name="kilometraje" id="combKm" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Ej. 124500"/>
+<input name="kilometraje" id="combKm" type="number" step="any" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Ej. 124500" required/>
+</div>
+<div class="flex flex-col gap-1 hidden" id="adminHorasContainer">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Horas (Horómetro)</label>
+<input name="horas_al_cargar" id="combHoras" type="number" step="any" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Ej. 3450"/>
 </div>
 <div class="bg-surface-container-high p-3 rounded-lg flex justify-between items-center">
 <span class="font-label-caps text-label-caps uppercase font-bold">Total Calculado</span>
@@ -363,7 +493,7 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 </div>
 <div class="flex gap-3 pt-4">
 <button type="button" onclick="closeModal('modalCombustible')" class="flex-1 border border-outline text-primary py-2 rounded-lg font-bold">Cancelar</button>
-<button type="submit" class="flex-1 bg-primary text-on-primary py-2 rounded-lg font-bold">Guardar Carga</button>
+<button type="submit" id="adminSubmitBtn" class="flex-1 bg-primary text-on-primary py-2 rounded-lg font-bold">Guardar Carga</button>
 </div>
 </form>
 </div>
@@ -382,10 +512,21 @@ document.getElementById('combCamion').value = '';
 document.getElementById('modLitros').value = '';
 document.getElementById('modPrecio').value = '';
 document.getElementById('combKm').value = '';
+document.getElementById('combHoras').value = '';
 document.getElementById('modTotal').innerText = '$ 0.00';
 document.getElementById('modalCombustibleTitle').textContent = 'Nueva Carga de Combustible';
 document.getElementById('combFotoPreview').classList.add('hidden');
 document.getElementById('combScanBtn').disabled = true;
+const btn = document.getElementById('adminSubmitBtn');
+if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = 'Guardar Carga';
+    btn.classList.remove('opacity-75', 'cursor-not-allowed');
+}
+const adminFuelForm = document.getElementById('adminFuelForm');
+if (adminFuelForm) {
+    delete adminFuelForm.dataset.submitting;
+}
 updateCargaFields();
 }
 
@@ -396,18 +537,42 @@ const combKm = document.getElementById('combKm');
 function updateCargaFields() {
     if (!combCamion) return;
     const opt = combCamion.options[combCamion.selectedIndex];
+    const horasContainer = document.getElementById('adminHorasContainer');
+    const combHoras = document.getElementById('combHoras');
+    
     if (opt && opt.value) {
         const porHora = opt.getAttribute('data-por-hora') == '1';
         if (porHora) {
-            if (kmLabel) kmLabel.textContent = 'Horas Actuales (Horómetro)';
-            if (combKm) combKm.placeholder = 'Ej. 3450';
+            if (kmLabel) kmLabel.textContent = 'Kilometraje Actual (Opcional)';
+            if (combKm) {
+                combKm.placeholder = 'Ej. 124500';
+                combKm.removeAttribute('required');
+            }
+            if (horasContainer) horasContainer.classList.remove('hidden');
+            if (combHoras) combHoras.setAttribute('required', 'required');
         } else {
             if (kmLabel) kmLabel.textContent = 'Kilometraje';
-            if (combKm) combKm.placeholder = 'Ej. 124500';
+            if (combKm) {
+                combKm.placeholder = 'Ej. 124500';
+                combKm.setAttribute('required', 'required');
+            }
+            if (horasContainer) horasContainer.classList.add('hidden');
+            if (combHoras) {
+                combHoras.removeAttribute('required');
+                combHoras.value = '';
+            }
         }
     } else {
         if (kmLabel) kmLabel.textContent = 'Kilometraje';
-        if (combKm) combKm.placeholder = 'Ej. 124500';
+        if (combKm) {
+            combKm.placeholder = 'Ej. 124500';
+            combKm.setAttribute('required', 'required');
+        }
+        if (horasContainer) horasContainer.classList.add('hidden');
+        if (combHoras) {
+            combHoras.removeAttribute('required');
+            combHoras.value = '';
+        }
     }
 }
 
@@ -446,11 +611,17 @@ const text = result.data.text;
     if (!litrosMatch) litrosMatch = text.match(/(?:Total\s*L[íi]quidos?|Volumen)\s*:?\s*\$?\s*(\d+[.,]\d+)/i);
     if (!litrosMatch) litrosMatch = text.match(/(\d+[.,']\d+)\s*(?:[a-zA-Z]\s*)?x\s*(?:\$)?\s*\d+(?:[.,']\d+)?/i);
     if (!litrosMatch) litrosMatch = text.match(/(\d+[.,']\d{2,4})\s*(?:u\s*)?x/i);
-    if (litrosMatch) { document.getElementById('modLitros').value = litrosMatch[1].replace(/[,']/g, '.'); }
+    if (litrosMatch) {
+        let val = parseFloat(litrosMatch[1].replace(/[,']/g, '.'));
+        document.getElementById('modLitros').value = isNaN(val) ? '' : Number(val.toFixed(4));
+    }
 let precMatch = text.match(/(?:Precio\s*(?:por\s*)?[Ll]itro|P\.?\s*[Uu]nitario|\$\/[Ll]|\$\s*\/?\s*[Ll]itro)\s*:?\s*\$?\s*(\d+[.,]\d+)/i);
 if (!precMatch) precMatch = text.match(/\$\s*(\d+[.,]\d{3,4})(?:\s*\/\s*L)?/i);
 if (!precMatch) precMatch = text.match(/[Pp]recio\s*:?\s*\$?\s*(\d+[.,]\d+)/i);
-if (precMatch) { document.getElementById('modPrecio').value = precMatch[1].replace(',', '.'); }
+if (precMatch) {
+    let val = parseFloat(precMatch[1].replace(',', '.'));
+    document.getElementById('modPrecio').value = isNaN(val) ? '' : Number(val.toFixed(4));
+}
 let fechaMatch = text.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
 if (!fechaMatch) fechaMatch = text.match(/(\d{2})\s*[\/\-]\s*(\d{2})\s*[\/\-]\s*(\d{4})/);
 if (fechaMatch) {
@@ -487,6 +658,7 @@ document.getElementById('combEstacion').value = data.estacion_servicio;
 document.getElementById('modLitros').value = data.litros;
 document.getElementById('modPrecio').value = data.precio_litro;
 document.getElementById('combKm').value = data.kilometraje_al_cargar || '';
+document.getElementById('combHoras').value = data.horas_al_cargar || '';
 document.getElementById('modalCombustibleTitle').textContent = 'Editar Carga de Combustible';
 updateCargaFields();
 calcTotal();
@@ -519,7 +691,22 @@ totalDisplay.innerText = '$ ' + (l * p).toLocaleString('es-ES', { minimumFractio
 litrosInput.addEventListener('input', calcTotal);
 precioInput.addEventListener('input', calcTotal);
 
-
+const adminFuelForm = document.getElementById('adminFuelForm');
+if (adminFuelForm) {
+    adminFuelForm.addEventListener('submit', function(e) {
+        if (this.dataset.submitting) {
+            e.preventDefault();
+            return false;
+        }
+        this.dataset.submitting = "true";
+        const btn = document.getElementById('adminSubmitBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px]">sync</span> Guardando...';
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+        }
+    });
+}
 </script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

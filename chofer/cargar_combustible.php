@@ -73,33 +73,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $estacion = trim($_POST['estacion_servicio'] ?? '');
     $litros = (float)($_POST['litros'] ?? 0);
     $precio_litro = (float)($_POST['precio_litro'] ?? 0);
-    $km_carga = (float)($_POST['kilometraje'] ?? 0);
+    $km_carga = isset($_POST['kilometraje']) && $_POST['kilometraje'] !== '' ? (float)$_POST['kilometraje'] : null;
+    $horas_carga = isset($_POST['horas_al_cargar']) && $_POST['horas_al_cargar'] !== '' ? (float)$_POST['horas_al_cargar'] : null;
     $id_camion = (int)($_POST['id_camion'] ?? 0);
-
-    $uploadDir = __DIR__ . '/../assets/uploads/tickets/';
-    if (!is_dir($uploadDir)) {
-        @mkdir($uploadDir, 0755, true);
-    }
-
-    $foto_ticket = null;
-    if (isset($_FILES['foto_ticket']) && $_FILES['foto_ticket']['error'] === UPLOAD_ERR_OK) {
-        $ext = pathinfo($_FILES['foto_ticket']['name'], PATHINFO_EXTENSION);
-        $foto_ticket = 'ticket_' . uniqid() . '.' . $ext;
-        @move_uploaded_file($_FILES['foto_ticket']['tmp_name'], $uploadDir . $foto_ticket);
-    }
 
     if (!$idChofer) {
         $error = 'No se pudo identificar el chofer asociado a su usuario. Contacte al administrador.';
     } else {
         try {
-            $stmt = $db->prepare("INSERT INTO combustible (fecha, id_chofer, id_camion, estacion_servicio, litros, precio_litro, kilometraje_al_cargar, foto_ticket, id_usuario_registra) VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$idChofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $foto_ticket, $userId]);
-            if ($km_carga > 0) {
-                $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+            // Verificar si ya se registró una carga idéntica en los últimos 2 minutos para prevenir duplicados
+            $stmtDup = $db->prepare("SELECT id_combustible FROM combustible WHERE id_chofer = ? AND id_camion = ? AND ABS(litros - ?) < 0.001 AND fecha >= (NOW() - INTERVAL 2 MINUTE) LIMIT 1");
+            $stmtDup->execute([$idChofer, $id_camion, $litros]);
+            if ($stmtDup->fetchColumn()) {
+                $error = 'Esta carga de combustible ya fue registrada hace unos momentos. Se evitó el registro duplicado.';
+            } else {
+                $uploadDir = __DIR__ . '/../assets/uploads/tickets/';
+                if (!is_dir($uploadDir)) {
+                    @mkdir($uploadDir, 0755, true);
+                }
+
+                $foto_ticket = null;
+                if (isset($_FILES['foto_ticket']) && $_FILES['foto_ticket']['error'] === UPLOAD_ERR_OK) {
+                    $ext = pathinfo($_FILES['foto_ticket']['name'], PATHINFO_EXTENSION);
+                    $foto_ticket = 'ticket_' . uniqid() . '.' . $ext;
+                    @move_uploaded_file($_FILES['foto_ticket']['tmp_name'], $uploadDir . $foto_ticket);
+                }
+
+                $stmt = $db->prepare("INSERT INTO combustible (fecha, id_chofer, id_camion, estacion_servicio, litros, precio_litro, kilometraje_al_cargar, horas_al_cargar, foto_ticket, id_usuario_registra) VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$idChofer, $id_camion, $estacion, $litros, $precio_litro, $km_carga, $horas_carga, $foto_ticket, $userId]);
+                
+                // Update camion mileage/hours based on por_hora attribute
+                $stmtCam = $db->prepare("SELECT por_hora FROM camiones WHERE id_camion = ?");
+                $stmtCam->execute([$id_camion]);
+                $isPorHora = (int)$stmtCam->fetchColumn();
+                
+                if ($isPorHora) {
+                    if ($km_carga > 0) {
+                        $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+                    }
+                    if ($horas_carga > 0) {
+                        $db->prepare("UPDATE camiones SET horas_actuales = ? WHERE id_camion = ?")->execute([$horas_carga, $id_camion]);
+                    }
+                } else {
+                    if ($km_carga > 0) {
+                        $db->prepare("UPDATE camiones SET kilometraje_actual = ? WHERE id_camion = ?")->execute([$km_carga, $id_camion]);
+                    }
+                }
+
+                // Recalculate fuel calculations for this truck
+                recalcularCombustibleCamion($id_camion);
+
+                registrarAuditoria($userId, 'create', 'combustible', $db->lastInsertId(), "Carga de $litros L para camion ID $id_camion");
+                header('Location: ' . BASE_URL . '/chofer/panel.php?ok=carga_combustible');
+                exit;
             }
-            registrarAuditoria($userId, 'create', 'combustible', $db->lastInsertId(), "Carga de $litros L para camion ID $id_camion");
-            header('Location: ' . BASE_URL . '/chofer/panel.php?ok=carga_combustible');
-            exit;
         } catch (Exception $e) {
             $error = 'Error: ' . $e->getMessage();
         }
@@ -137,7 +164,7 @@ if ($idChofer) {
 <?php if ($error): ?><div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4"><?= htmlspecialchars($error) ?></div><?php endif; ?>
 <?php if (empty($camionesAsignados)): ?><div class="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg mb-4">No tiene un vehiculo asignado. Contacte al administrador.</div><?php endif; ?>
 
-<form method="POST" enctype="multipart/form-data" class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<form id="fuelForm" method="POST" enctype="multipart/form-data" class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
 <div class="lg:col-span-8 bg-surface-container-lowest border border-outline-variant p-lg">
 <div class="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-gutter">
 <?php if (!empty($camionesAsignados)): ?>
@@ -169,7 +196,7 @@ if ($idChofer) {
 <div class="flex flex-col gap-2">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Cantidad (Litros)</label>
 <div class="relative">
-<input name="litros" id="litros" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none" placeholder="0.00" required/>
+<input name="litros" id="litros" type="number" step="any" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none" placeholder="0.0000" required/>
 <span class="material-symbols-outlined absolute right-3 top-3 text-outline">ev_station</span>
 </div>
 </div>
@@ -177,7 +204,7 @@ if ($idChofer) {
 <div class="flex flex-col gap-2">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Precio por Litro</label>
 <div class="relative">
-<input name="precio_litro" id="precio" type="number" step="0.001" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none pl-8" placeholder="0.000" required/>
+<input name="precio_litro" id="precio" type="number" step="any" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none pl-8" placeholder="0.0000" required/>
 <span class="absolute left-3 top-3.5 text-outline font-data-mono">$</span>
 <span class="material-symbols-outlined absolute right-3 top-3 text-outline">payments</span>
 </div>
@@ -186,8 +213,16 @@ if ($idChofer) {
 <div class="flex flex-col gap-2">
 <label id="kmLabel" class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje Actual</label>
 <div class="relative">
-<input name="kilometraje" id="kmInput" type="number" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Ej. 124500"/>
+<input name="kilometraje" id="kmInput" type="number" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Ej. 124500" required/>
 <span id="kmIcon" class="material-symbols-outlined absolute right-3 top-3 text-outline">speed</span>
+</div>
+</div>
+
+<div class="flex flex-col gap-2 hidden" id="horasContainer">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Horas Actuales (Horómetro)</label>
+<div class="relative">
+<input name="horas_al_cargar" id="horasInput" type="number" step="any" class="w-full border border-outline-variant rounded p-3 font-data-mono focus:ring-2 focus:ring-primary focus:outline-none" placeholder="Ej. 3450"/>
+<span class="material-symbols-outlined absolute right-3 top-3 text-outline">schedule</span>
 </div>
 </div>
 
@@ -225,7 +260,7 @@ if ($idChofer) {
 
 <div class="lg:col-span-12 flex gap-3 pt-4">
 <a href="<?= BASE_URL ?>/chofer/panel.php" class="px-6 py-2 border border-outline text-primary font-bold rounded-lg hover:bg-surface-container-high transition-colors">Cancelar</a>
-<button type="submit" class="px-6 py-2 bg-primary text-on-primary font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center gap-2">
+<button type="submit" id="submitBtn" class="px-6 py-2 bg-primary text-on-primary font-bold rounded-lg hover:opacity-90 transition-opacity flex items-center gap-2">
 <span class="material-symbols-outlined text-[20px]">save</span> Guardar Registro
 </button>
 </div>
@@ -242,20 +277,70 @@ if ($idChofer) {
                     <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant">CAMION</th>
                     <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant">ESTACION</th>
                     <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">LITROS</th>
-                    <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">PRECIO/L</th>
+                    <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">IMPORTE (P/L)</th>
+                    <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">ODÓMETRO (RECORRIDO)</th>
+                    <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">RENDIMIENTO / CONSUMO</th>
+                    <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">COSTO RECORRIDO</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-outline-variant">
                 <?php if (empty($combustibles)): ?>
-                    <tr><td colspan="5" class="px-4 py-8 text-center text-on-surface-variant">No hay cargas registradas</td></tr>
+                    <tr><td colspan="8" class="px-4 py-8 text-center text-on-surface-variant">No hay cargas registradas</td></tr>
                 <?php else: ?>
                     <?php foreach ($combustibles as $c): ?>
                         <tr class="hover:bg-surface-container transition-colors">
-                            <td class="px-4 py-3 font-data-mono"><?= date('d/m/Y H:i', strtotime($c['fecha'])) ?></td>
-                            <td class="px-4 py-3 font-bold"><?= htmlspecialchars($c['patente']) ?></td>
-                            <td class="px-4 py-3"><?= htmlspecialchars($c['estacion_servicio'] ?? '-') ?></td>
-                            <td class="px-4 py-3 text-right font-data-mono"><?= number_format($c['litros'], 2) ?> L</td>
-                            <td class="px-4 py-3 text-right font-data-mono">$<?= number_format($c['precio_litro'], 3) ?></td>
+                            <td class="px-4 py-3 font-data-mono text-sm"><?= date('d/m/Y H:i', strtotime($c['fecha'])) ?></td>
+                            <td class="px-4 py-3 font-bold text-primary"><?= htmlspecialchars($c['patente']) ?></td>
+                            <td class="px-4 py-3 text-sm"><?= htmlspecialchars($c['estacion_servicio'] ?? '-') ?></td>
+                            <td class="px-4 py-3 text-right font-data-mono text-xs whitespace-nowrap"><?= number_format($c['litros'], 2) ?> L</td>
+                            <td class="px-4 py-3 text-right font-data-mono text-sm">
+                                <div class="font-bold">$<?= number_format($c['litros'] * $c['precio_litro'], 2) ?></div>
+                                <div class="text-xs text-on-surface-variant">$<?= number_format($c['precio_litro'], 2) ?>/L</div>
+                            </td>
+                            <td class="px-4 py-3 text-right font-data-mono text-sm">
+                                <div>
+                                    <?php 
+                                        $parts = [];
+                                        if ($c['kilometraje_al_cargar'] !== null && $c['kilometraje_al_cargar'] > 0) $parts[] = number_format($c['kilometraje_al_cargar'], 0) . ' KM';
+                                        if ($c['horas_al_cargar'] !== null && $c['horas_al_cargar'] > 0) $parts[] = number_format($c['horas_al_cargar'], 1) . ' HS';
+                                        echo !empty($parts) ? implode(' / ', $parts) : '-';
+                                    ?>
+                                </div>
+                                <div class="text-xs font-bold mt-0.5">
+                                    <?php
+                                        if ($c['error_consumo']) {
+                                            echo '<span class="text-amber-600 font-bold" title="' . htmlspecialchars($c['error_consumo']) . '">⚠️ Error</span>';
+                                        } else {
+                                            $parts = [];
+                                            if ($c['km_recorridos'] !== null) $parts[] = '+' . number_format($c['km_recorridos'], 0) . ' KM';
+                                            if ($c['hs_recorridas'] !== null) $parts[] = '+' . number_format($c['hs_recorridas'], 1) . ' HS';
+                                            echo !empty($parts) ? '<span class="text-green-600">' . implode(' / ', $parts) . '</span>' : '<span class="text-on-surface-variant">-</span>';
+                                        }
+                                    ?>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-right font-data-mono text-sm">
+                                <?php if ($c['error_consumo']): ?>
+                                    <span class="text-on-surface-variant text-xs">-</span>
+                                <?php else: ?>
+                                    <?php if ($c['litros_cada_100km'] !== null): ?>
+                                        <div class="font-bold text-blue-600 text-xs whitespace-nowrap"><?= number_format($c['litros_cada_100km'], 2) ?> L/100 Km</div>
+                                        <div class="text-[10px] text-on-surface-variant whitespace-nowrap"><?= number_format($c['km_por_litro'], 2) ?> Km/L</div>
+                                    <?php elseif ($c['litros_por_hora'] !== null): ?>
+                                        <div class="font-bold text-blue-600 text-xs whitespace-nowrap"><?= number_format($c['litros_por_hora'], 2) ?> Hs/L</div>
+                                    <?php else: ?>
+                                        <span class="text-on-surface-variant text-xs">-</span>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </td>
+                            <td class="px-4 py-3 text-right font-data-mono text-sm">
+                                <?php
+                                    $parts = [];
+                                    if ($c['costo_por_km'] !== null) $parts[] = '$' . number_format($c['costo_por_km'], 2) . '/Km';
+                                    if ($c['costo_por_hora'] !== null) $parts[] = '$' . number_format($c['costo_por_hora'], 2) . '/Hs';
+                                    echo !empty($parts) ? implode('<br>', $parts) : '-';
+                                ?>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 <?php endif; ?>
@@ -279,20 +364,36 @@ const kmIcon = document.getElementById('kmIcon');
 function updateCargaFields() {
     if (!camionSelect) return;
     const opt = camionSelect.options[camionSelect.selectedIndex];
+    const horasContainer = document.getElementById('horasContainer');
+    const horasInput = document.getElementById('horasInput');
+    
     if (opt && opt.value) {
         const km = opt.getAttribute('data-km') || '0';
         const porHora = opt.getAttribute('data-por-hora') == '1';
         
         if (porHora) {
             camionInfoText.textContent = 'Vehiculo: ' + opt.text + ' - HS Actual: ' + Number(km).toLocaleString('es-ES');
-            if (kmLabel) kmLabel.textContent = 'Horas Actuales (Horómetro)';
-            if (kmInput) kmInput.placeholder = 'Ej. 3450';
-            if (kmIcon) kmIcon.textContent = 'schedule';
+            if (kmLabel) kmLabel.textContent = 'Kilometraje Actual (Opcional)';
+            if (kmInput) {
+                kmInput.placeholder = 'Ej. 124500';
+                kmInput.removeAttribute('required');
+            }
+            if (kmIcon) kmIcon.textContent = 'speed';
+            if (horasContainer) horasContainer.classList.remove('hidden');
+            if (horasInput) horasInput.setAttribute('required', 'required');
         } else {
             camionInfoText.textContent = 'Vehiculo: ' + opt.text + ' - KM Actual: ' + Number(km).toLocaleString('es-ES');
             if (kmLabel) kmLabel.textContent = 'Kilometraje Actual';
-            if (kmInput) kmInput.placeholder = 'Ej. 124500';
+            if (kmInput) {
+                kmInput.placeholder = 'Ej. 124500';
+                kmInput.setAttribute('required', 'required');
+            }
             if (kmIcon) kmIcon.textContent = 'speed';
+            if (horasContainer) horasContainer.classList.add('hidden');
+            if (horasInput) {
+                horasInput.removeAttribute('required');
+                horasInput.value = '';
+            }
         }
         camionInfo.classList.remove('hidden');
     } else {
@@ -341,12 +442,18 @@ const text = result.data.text;
 let litrosMatch = text.match(/(\d+[.,]\d+)\s*L(?:itros?|T|\.)?\b/i);
 if (!litrosMatch) litrosMatch = text.match(/(?:Litros?|Cantidad|Neto)\s*:?\s*(\d+[.,]\d+)/i);
 if (!litrosMatch) litrosMatch = text.match(/(?:Total\s*L[íi]quidos?|Volumen)\s*:?\s*\$?\s*(\d+[.,]\d+)/i);
-if (litrosMatch) { document.getElementById('litros').value = litrosMatch[1].replace(',', '.'); }
+if (litrosMatch) {
+    let val = parseFloat(litrosMatch[1].replace(',', '.'));
+    document.getElementById('litros').value = isNaN(val) ? '' : Number(val.toFixed(4));
+}
 // Precio por litro
 let precMatch = text.match(/(?:Precio\s*(?:por\s*)?[Ll]itro|P\.?\s*[Uu]nitario|\$\/[Ll]|\$\s*\/?\s*[Ll]itro)\s*:?\s*\$?\s*(\d+[.,]\d+)/i);
 if (!precMatch) precMatch = text.match(/\$\s*(\d+[.,]\d{3,4})(?:\s*\/\s*L)?/i);
 if (!precMatch) precMatch = text.match(/[Pp]recio\s*:?\s*\$?\s*(\d+[.,]\d+)/i);
-if (precMatch) { document.getElementById('precio').value = precMatch[1].replace(',', '.'); }
+if (precMatch) {
+    let val = parseFloat(precMatch[1].replace(',', '.'));
+    document.getElementById('precio').value = isNaN(val) ? '' : Number(val.toFixed(4));
+}
 // Fecha
 let fechaMatch = text.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
 if (!fechaMatch) fechaMatch = text.match(/(\d{2})\s*[\/\-]\s*(\d{2})\s*[\/\-]\s*(\d{4})/);
@@ -367,6 +474,23 @@ console.error(err);
 scanBtn.disabled = false;
 scanBtn.innerHTML = '<span class="material-symbols-outlined text-[20px]">document_scanner</span> Escanear Ticket';
 }
+}
+
+const fuelForm = document.getElementById('fuelForm');
+if (fuelForm) {
+    fuelForm.addEventListener('submit', function(e) {
+        if (this.dataset.submitting) {
+            e.preventDefault();
+            return false;
+        }
+        this.dataset.submitting = "true";
+        const btn = document.getElementById('submitBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[20px]">sync</span> Guardando...';
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+        }
+    });
 }
 </script>
 
