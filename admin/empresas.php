@@ -9,14 +9,24 @@ require_once __DIR__ . '/../includes/sidebar_admin.php';
 $mensaje = '';
 $error = '';
 
+if (isset($_GET['ok'])) {
+    if ($_GET['ok'] === 'created') $mensaje = 'Empresa creada exitosamente.';
+    elseif ($_GET['ok'] === 'updated') $mensaje = 'Empresa actualizada exitosamente.';
+    elseif ($_GET['ok'] === 'deleted') $mensaje = 'Empresa eliminada.';
+}
+
 // Crear tabla si no existe
 try {
     $db->exec("CREATE TABLE IF NOT EXISTS empresas (
         id_empresa INT AUTO_INCREMENT PRIMARY KEY,
         nombre VARCHAR(200) NOT NULL UNIQUE,
         activo TINYINT(1) NOT NULL DEFAULT 1,
+        logo VARCHAR(255) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB");
+    
+    // Add logo column if it doesn't exist
+    try { $db->exec("ALTER TABLE empresas ADD COLUMN logo VARCHAR(255) NULL"); } catch (Exception $e) {}
 } catch (Exception $e) {}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -29,18 +39,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($nombre === '') {
             $error = 'El nombre es obligatorio';
         } else {
+            // Manejo de logo
+            $logo = null;
+            $uploadDir = __DIR__ . '/../assets/uploads/empresas/';
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0777, true);
+            }
+
+            if (isset($_FILES['logo']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($_FILES['logo']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) {
+                    $logo = 'empresa_' . time() . '.' . $ext;
+                    move_uploaded_file($_FILES['logo']['tmp_name'], $uploadDir . $logo);
+                }
+            }
+
             if ($action === 'create') {
                 try {
-                    $db->prepare("INSERT INTO empresas (nombre, activo) VALUES (?, ?)")->execute([$nombre, $activo]);
-                    $mensaje = 'Empresa creada exitosamente';
+                    $db->prepare("INSERT INTO empresas (nombre, activo, logo) VALUES (?, ?, ?)")->execute([$nombre, $activo, $logo]);
+                    header('Location: ' . BASE_URL . '/admin/empresas.php?ok=created');
+                    exit;
                 } catch (Exception $e) {
                     $error = $e->errorInfo[1] == 1062 ? 'Ya existe una empresa con ese nombre' : 'Error: ' . $e->getMessage();
                 }
             } else {
                 $id = (int)($_POST['id_empresa'] ?? 0);
                 try {
-                    $db->prepare("UPDATE empresas SET nombre = ?, activo = ? WHERE id_empresa = ?")->execute([$nombre, $activo, $id]);
-                    $mensaje = 'Empresa actualizada';
+                    if ($logo) {
+                        // Borrar logo viejo
+                        $oldLogo = $db->query("SELECT logo FROM empresas WHERE id_empresa = $id")->fetchColumn();
+                        if ($oldLogo && file_exists($uploadDir . $oldLogo)) unlink($uploadDir . $oldLogo);
+                        $db->prepare("UPDATE empresas SET nombre = ?, activo = ?, logo = ? WHERE id_empresa = ?")->execute([$nombre, $activo, $logo, $id]);
+                    } else {
+                        $db->prepare("UPDATE empresas SET nombre = ?, activo = ? WHERE id_empresa = ?")->execute([$nombre, $activo, $id]);
+                    }
+                    header('Location: ' . BASE_URL . '/admin/empresas.php?ok=updated');
+                    exit;
                 } catch (Exception $e) {
                     $error = 'Error: ' . $e->getMessage();
                 }
@@ -49,8 +83,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'delete') {
         $id = (int)($_POST['id_empresa'] ?? 0);
         try {
+            // Borrar logo si existe
+            $uploadDir = __DIR__ . '/../assets/uploads/empresas/';
+            $oldLogo = $db->query("SELECT logo FROM empresas WHERE id_empresa = $id")->fetchColumn();
+            if ($oldLogo && file_exists($uploadDir . $oldLogo)) unlink($uploadDir . $oldLogo);
+
             $db->prepare("DELETE FROM empresas WHERE id_empresa = ?")->execute([$id]);
-            $mensaje = 'Empresa eliminada';
+            header('Location: ' . BASE_URL . '/admin/empresas.php?ok=deleted');
+            exit;
         } catch (Exception $e) {
             $error = 'No se puede eliminar, tiene vehiculos o choferes asociados';
         }
@@ -79,6 +119,7 @@ $empresasActivas = $db->query("SELECT id_empresa, nombre FROM empresas WHERE act
 <table class="w-full">
 <thead class="bg-surface-container-high/50">
 <tr>
+<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left w-16">LOGO</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">NOMBRE</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-center">ESTADO</th>
 <th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-center">CREACION</th>
@@ -91,6 +132,13 @@ $empresasActivas = $db->query("SELECT id_empresa, nombre FROM empresas WHERE act
 <?php else: ?>
 <?php foreach ($empresas as $e): ?>
 <tr class="hover:bg-surface-container transition-colors">
+<td class="px-6 py-4 text-center">
+<?php if ($e['logo']): ?>
+<img src="<?= BASE_URL ?>/assets/uploads/empresas/<?= htmlspecialchars($e['logo']) ?>" class="w-10 h-10 object-contain rounded-lg border border-outline-variant bg-white" alt="Logo"/>
+<?php else: ?>
+<div class="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center border border-outline-variant text-on-surface-variant"><span class="material-symbols-outlined text-xl">business</span></div>
+<?php endif; ?>
+</td>
 <td class="px-6 py-4 font-bold"><?= htmlspecialchars($e['nombre']) ?></td>
 <td class="px-6 py-4 text-center">
 <?php if ($e['activo']): ?>
@@ -125,12 +173,17 @@ $empresasActivas = $db->query("SELECT id_empresa, nombre FROM empresas WHERE act
 <h3 id="modalEmpresaTitle" class="font-headline-sm text-headline-sm text-primary">Nueva Empresa</h3>
 <button onclick="closeModalEmpresa()"><span class="material-symbols-outlined">close</span></button>
 </div>
-<form method="POST" class="p-6 space-y-4">
+<form method="POST" enctype="multipart/form-data" class="p-6 space-y-4">
 <input type="hidden" name="action" id="empresaAction" value="create"/>
 <input type="hidden" name="id_empresa" id="empresaId" value=""/>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Nombre</label>
 <input name="nombre" id="empresaNombre" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Logo (opcional)</label>
+<input type="file" name="logo" id="empresaLogo" accept="image/*" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+<p class="text-xs text-on-surface-variant mt-1" id="empresaLogoHint">Formatos permitidos: JPG, PNG, WEBP</p>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Estado</label>
@@ -162,6 +215,8 @@ document.getElementById('empresaAction').value = 'update';
 document.getElementById('empresaId').value = e.id_empresa;
 document.getElementById('empresaNombre').value = e.nombre;
 document.getElementById('empresaActivo').value = e.activo;
+document.getElementById('empresaLogo').value = '';
+document.getElementById('empresaLogoHint').textContent = e.logo ? 'Subir nueva imagen reemplazará el logo actual.' : 'Formatos permitidos: JPG, PNG, WEBP';
 document.getElementById('modalEmpresaTitle').textContent = 'Editar Empresa';
 document.getElementById('modalEmpresa').classList.remove('hidden');
 }

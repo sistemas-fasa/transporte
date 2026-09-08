@@ -62,12 +62,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'delete') {
         $id = (int)($_POST['id_rol'] ?? 0);
-        try {
-            $db->prepare("DELETE FROM roles WHERE id_rol = ?")->execute([$id]);
-            registrarAuditoria(getCurrentUserId(), 'delete', 'roles', $id, "Elimino rol ID $id");
-            $mensaje = 'Rol eliminado';
-        } catch (Exception $e) {
-            $error = 'No se puede eliminar el rol, tiene usuarios asignados';
+        if ($id <= 2) {
+            $error = 'No se puede eliminar un rol por defecto del sistema';
+        } else {
+            try {
+                $db->prepare("DELETE FROM usuario_rol WHERE id_rol = ?")->execute([$id]);
+                $db->prepare("DELETE FROM rol_permiso WHERE id_rol = ?")->execute([$id]);
+                $db->prepare("DELETE FROM roles WHERE id_rol = ?")->execute([$id]);
+                registrarAuditoria(getCurrentUserId(), 'delete', 'roles', $id, "Elimino rol ID $id");
+                $mensaje = 'Rol eliminado';
+            } catch (Exception $e) {
+                $error = 'No se puede eliminar el rol, tiene usuarios asignados';
+            }
         }
     }
 }
@@ -85,6 +91,14 @@ foreach ($roles as $r) {
     $stmt = $db->prepare("SELECT p.codigo FROM permisos p JOIN rol_permiso rp ON p.id_permiso = rp.id_permiso WHERE rp.id_rol = ?");
     $stmt->execute([$r['id_rol']]);
     $rolPermisos[$r['id_rol']] = array_column($stmt->fetchAll(), 'codigo');
+}
+
+// Obtener usuarios de cada rol
+$usuariosPorRol = [];
+foreach ($roles as $r) {
+    $stmt = $db->prepare("SELECT u.id_usuario, u.username, u.nombre, u.apellido, u.activo FROM usuario_rol ur JOIN usuarios u ON ur.id_usuario = u.id_usuario WHERE ur.id_rol = ? ORDER BY u.apellido, u.nombre");
+    $stmt->execute([$r['id_rol']]);
+    $usuariosPorRol[$r['id_rol']] = $stmt->fetchAll();
 }
 ?>
 
@@ -118,6 +132,9 @@ foreach ($roles as $r) {
 <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase border <?= $colors[$colorIdx] ?>"><?= $r['total_usuarios'] ?> usuarios</span>
 </div>
 <div class="flex gap-2">
+<button onclick="verUsuariosRol(<?= $r['id_rol'] ?>, '<?= htmlspecialchars($r['nombre']) ?>')" class="flex-1 bg-blue-50 text-blue-700 py-2 rounded-lg font-bold text-sm hover:bg-blue-100 flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-sm">people</span> Ver Usuarios
+</button>
 <button onclick="editRol(<?= $r['id_rol'] ?>)" class="flex-1 bg-secondary-container text-on-secondary-container py-2 rounded-lg font-bold text-sm hover:opacity-80 flex items-center justify-center gap-1">
 <span class="material-symbols-outlined text-sm">edit</span> Editar
 </button>
@@ -232,6 +249,22 @@ foreach (array_keys($modulos) as $m):
 </div>
 </div>
 
+<!-- Modal Ver Usuarios del Rol -->
+<div id="modalUsuariosRol" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+<div class="bg-surface-container-lowest rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+<div class="p-6 border-b border-outline-variant flex justify-between items-center">
+<h3 id="modalUsuariosRolTitle" class="font-headline-sm text-headline-sm text-primary">Usuarios del Rol</h3>
+<button onclick="closeModal('modalUsuariosRol')"><span class="material-symbols-outlined">close</span></button>
+</div>
+<div class="p-6" id="usuariosRolContent">
+<p class="text-on-surface-variant">Cargando...</p>
+</div>
+<div class="p-6 pt-0">
+<button type="button" onclick="closeModal('modalUsuariosRol')" class="w-full border border-outline text-primary py-2 rounded-lg font-bold hover:bg-surface-container-high transition-colors">Cerrar</button>
+</div>
+</div>
+</div>
+
 <script>
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
@@ -277,6 +310,38 @@ form.innerHTML = '<input name="action" value="delete"><input name="id_rol" value
 document.body.appendChild(form);
 form.submit();
 });
+}
+
+var usuariosPorRol = <?= json_encode($usuariosPorRol) ?>;
+
+function verUsuariosRol(idRol, nombreRol) {
+document.getElementById('modalUsuariosRolTitle').textContent = 'Usuarios - ' + nombreRol;
+var usuarios = usuariosPorRol[idRol] || [];
+var html = '';
+if (usuarios.length === 0) {
+html = '<div class="text-center py-8"><span class="material-symbols-outlined text-4xl text-on-surface-variant">person_off</span><p class="text-on-surface-variant mt-2">No hay usuarios asignados a este rol</p></div>';
+} else {
+html += '<div class="space-y-2">';
+usuarios.forEach(function(u) {
+var estado = u.activo == 1;
+html += '<div class="flex items-center justify-between p-3 bg-surface-container-low rounded-lg border border-outline-variant">';
+html += '<div class="flex items-center gap-3">';
+html += '<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">';
+html += '<span class="material-symbols-outlined text-primary">person</span>';
+html += '</div>';
+html += '<div>';
+html += '<p class="font-bold text-sm">' + (u.username || '') + '</p>';
+html += '<p class="text-xs text-on-surface-variant">' + (u.nombre || '') + ' ' + (u.apellido || '') + '</p>';
+html += '</div>';
+html += '</div>';
+html += '<span class="px-2 py-0.5 rounded text-[10px] font-bold ' + (estado ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800') + '">' + (estado ? 'Activo' : 'Inactivo') + '</span>';
+html += '</div>';
+});
+html += '</div>';
+html += '<p class="text-xs text-on-surface-variant mt-4 text-center">' + usuarios.length + ' usuario(s) asignado(s)</p>';
+}
+document.getElementById('usuariosRolContent').innerHTML = html;
+openModal('modalUsuariosRol');
 }
 
 

@@ -100,11 +100,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $horas_carga = isset($_POST['horas_al_cargar']) && $_POST['horas_al_cargar'] !== '' ? (float)$_POST['horas_al_cargar'] : null;
 
     try {
-        // Verificar registro duplicado en los últimos 2 minutos
-        $stmtDup = $db->prepare("SELECT id_combustible FROM combustible WHERE id_chofer = ? AND id_camion = ? AND ABS(litros - ?) < 0.001 AND fecha >= (NOW() - INTERVAL 2 MINUTE) LIMIT 1");
-        $stmtDup->execute([$id_chofer, $id_camion, $litros]);
+        // Verificar registro duplicado exacto
+        $km_cond = $km_carga !== null ? "AND (kilometraje_al_cargar = " . (float)$km_carga . ")" : "AND kilometraje_al_cargar IS NULL";
+        $hs_cond = $horas_carga !== null ? "AND (horas_al_cargar = " . (float)$horas_carga . ")" : "AND horas_al_cargar IS NULL";
+        
+        $stmtDup = $db->prepare("SELECT id_combustible FROM combustible WHERE id_chofer = ? AND id_camion = ? AND ABS(litros - ?) < 0.001 AND estacion_servicio = ? $km_cond $hs_cond LIMIT 1");
+        $stmtDup->execute([$id_chofer, $id_camion, $litros, $estacion]);
         if ($stmtDup->fetchColumn()) {
-            $error = 'Esta carga de combustible ya fue registrada hace unos momentos. Se evitó el registro duplicado.';
+            $error = 'Esta carga de combustible ya fue registrada. Se evitó el registro duplicado.';
         } else {
             $foto_ticket = null;
             if (isset($_FILES['foto_ticket']) && $_FILES['foto_ticket']['error'] === UPLOAD_ERR_OK) {
@@ -159,7 +162,7 @@ $fechaHasta = $_GET['fecha_hasta'] ?? date('Y-m-d');
 // Si no es admin pleno, solo ve sus propias cargas
 $idChoferRestriccion = 0;
 $esRestringido = false;
-if (!esAdminPleno()) {
+if (!esAdminPleno() && !esMantenimiento()) {
     $esRestringido = true;
     $idChoferRestriccion = (int)($_SESSION['id_chofer'] ?? 0);
     if (!$idChoferRestriccion) {
@@ -357,8 +360,8 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
     </div>
     <div class="text-xs font-bold mt-0.5">
         <?php
-            if ($r['error_consumo']) {
-                echo '<span class="text-amber-600" title="' . htmlspecialchars($r['error_consumo']) . '">⚠️ Error</span>';
+if ($r['error_consumo']) {
+                                                echo '<span class="text-amber-600" title="' . htmlspecialchars($r['error_consumo']) . '">⚠️ ' . htmlspecialchars($r['error_consumo']) . '</span>';
             } else {
                 $parts = [];
                 if ($r['km_recorridos'] !== null) $parts[] = '+' . number_format($r['km_recorridos'], 0) . ' KM';
@@ -409,6 +412,11 @@ $choferesList = $db->query("SELECT id_chofer, nombre, apellido, dni FROM chofere
 </table>
 </div>
 </main>
+
+<form id="deleteCombForm" method="POST" class="hidden" action="">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="id_combustible" id="deleteCombId" value="">
+</form>
 
 <!-- Modal Nueva/Editar Carga -->
 <div id="modalCombustible" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
@@ -669,13 +677,24 @@ alert('Error al cargar datos: ' + err.message);
 }
 
 function deleteCombustible(id) {
-showConfirm('¿Eliminar esta carga de combustible?', function() {
-const form = document.createElement('form');
-form.method = 'POST';
-form.innerHTML = '<input name="action" value="delete"><input name="id_combustible" value="' + id + '">';
-document.body.appendChild(form);
-form.submit();
-});
+    showConfirm('¿Eliminar esta carga de combustible?', function() {
+        const formData = new FormData();
+        formData.append('action', 'delete');
+        formData.append('id_combustible', id);
+
+        fetch(window.location.pathname, {
+            method: 'POST',
+            body: formData
+        }).then(res => {
+            if (res.ok) {
+                window.location.href = window.location.pathname + '?ok=deleted';
+            } else {
+                alert('Hubo un error al procesar la solicitud.');
+            }
+        }).catch(err => {
+            alert('Error: ' + err);
+        });
+    });
 }
 
 

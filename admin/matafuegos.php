@@ -200,7 +200,7 @@ function sortLink($columnName, $label, $currentSort, $currentDir) {
 </div>
 </form>
 
-<div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap overflow-x-auto">
+<div class="hidden md:block bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap overflow-x-auto">
 <table class="w-full">
 <thead class="bg-surface-container-high/50">
 <tr>
@@ -276,6 +276,85 @@ if ($diasRestantes < 0) {
 <?php endif; ?>
 </tbody>
 </table>
+</div>
+
+<!-- Vista Mobile (Tarjetas) -->
+<div class="block md:hidden space-y-4">
+<?php if (empty($matafuegos)): ?>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 text-center text-on-surface-variant">
+No hay matafuegos registrados.
+</div>
+<?php else: ?>
+<?php foreach ($matafuegos as $m): ?>
+<?php
+$hoy = time();
+$venc = strtotime($m['vencimiento']);
+$diasRestantes = ($venc - $hoy) / 86400;
+if ($diasRestantes < 0) {
+    $estadoClase = 'bg-red-100 text-red-700 border-red-200';
+    $estadoTexto = 'VENCIDO';
+    $vencClase = 'text-red-600 font-bold';
+} elseif ($diasRestantes <= 30) {
+    $estadoClase = 'bg-red-100 text-red-700 border-red-200';
+    $estadoTexto = 'VENCE PRONTO';
+    $vencClase = 'text-red-600 font-bold';
+} elseif ($diasRestantes <= 90) {
+    $estadoClase = 'bg-amber-100 text-amber-700 border-amber-200';
+    $estadoTexto = 'PRONTO A VENCER';
+    $vencClase = 'text-amber-700 font-bold';
+} else {
+    $estadoClase = 'bg-green-100 text-green-700 border-green-200';
+    $estadoTexto = 'OK';
+    $vencClase = 'text-on-surface font-bold';
+}
+?>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-4 flex flex-col gap-3">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-bold text-lg text-primary">Nro: <?= htmlspecialchars($m['numero']) ?></h3>
+<p class="text-sm text-on-surface-variant"><span class="material-symbols-outlined text-[14px] align-middle">location_on</span> <?= htmlspecialchars($m['sector']) ?></p>
+</div>
+<span class="px-2 py-1 rounded-full text-[10px] font-bold uppercase border <?= $estadoClase ?>"><?= $estadoTexto ?></span>
+</div>
+
+<div class="grid grid-cols-2 gap-3 text-sm bg-surface-container-low p-3 rounded-lg">
+<div>
+<p class="text-[10px] text-on-surface-variant uppercase font-bold">Clase</p>
+<span class="px-2 py-1 rounded text-[11px] font-bold uppercase bg-blue-100 text-blue-700 border border-blue-200 inline-block mt-1"><?= htmlspecialchars($m['clase']) ?></span>
+</div>
+<div>
+<p class="text-[10px] text-on-surface-variant uppercase font-bold">Vencimiento</p>
+<span class="<?= $vencClase ?> mt-1 block"><?= date('d/m/Y', strtotime($m['vencimiento'])) ?></span>
+</div>
+<?php if ($m['recarga']): ?>
+<div class="col-span-2 border-t border-outline-variant pt-2 mt-1">
+<p class="text-[10px] text-on-surface-variant uppercase font-bold">Recarga</p>
+<span class="block mt-1"><?= date('d/m/Y', strtotime($m['recarga'])) ?></span>
+</div>
+<?php endif; ?>
+<?php if ($m['patente']): ?>
+<div class="col-span-2 border-t border-outline-variant pt-2 mt-1">
+<p class="text-[10px] text-on-surface-variant uppercase font-bold">Vehículo Asignado</p>
+<span class="block mt-1"><?= htmlspecialchars($m['patente'] . ' - ' . $m['marca'] . ' ' . $m['modelo']) ?></span>
+</div>
+<?php endif; ?>
+</div>
+
+<div class="flex gap-2 justify-end mt-1">
+<button onclick="editMatafuego(<?= $m['id_matafuego'] ?>)" class="flex-1 p-2 bg-secondary-container text-on-secondary-container rounded-lg hover:opacity-80 flex items-center justify-center gap-1 font-bold text-sm" title="Editar">
+<span class="material-symbols-outlined text-[16px]">edit</span> Editar
+</button>
+<form method="POST" class="flex-1 inline flex" onsubmit="return confirm('¿Eliminar este matafuego?')">
+<input type="hidden" name="action" value="delete"/>
+<input type="hidden" name="id_matafuego" value="<?= $m['id_matafuego'] ?>"/>
+<button type="submit" class="w-full p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 flex items-center justify-center gap-1 font-bold text-sm" title="Eliminar">
+<span class="material-symbols-outlined text-[16px]">delete</span> Eliminar
+</button>
+</form>
+</div>
+</div>
+<?php endforeach; ?>
+<?php endif; ?>
 </div>
 </main>
 

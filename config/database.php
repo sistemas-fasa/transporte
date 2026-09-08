@@ -125,46 +125,37 @@ function recalcularCombustibleCamion($id_camion): void {
 
             $error_consumo = null;
 
-            if ($idx === 0) {
-                $error_consumo = "Sin datos suficientes";
-            } else {
+            $km_anterior = null;
+            $horas_anterior = null;
+            if ($prevCarga !== null) {
                 $km_anterior = $prevCarga['kilometraje_al_cargar'] !== null ? (float)$prevCarga['kilometraje_al_cargar'] : null;
                 $horas_anterior = $prevCarga['horas_al_cargar'] !== null ? (float)$prevCarga['horas_al_cargar'] : null;
+            }
 
-                // 1. Distance calculations
-                if ($km_actual !== null && $km_actual > 0) {
-                    if ($km_anterior !== null && $km_anterior > 0) {
-                        if ($km_actual <= $km_anterior) {
-                            $error_consumo = "El kilometraje actual ($km_actual) es menor o igual al anterior ($km_anterior)";
-                        } else {
-                            $km_recorridos = $km_actual - $km_anterior;
-                            if ($litros > 0) {
-                                $km_por_litro = round($km_recorridos / $litros, 2);
-                                $litros_cada_100km = round(($litros * 100) / $km_recorridos, 2);
-                                $costo_por_km = round($total_actual / $km_recorridos, 2);
-                            }
-                        }
-                    } else {
-                        $error_consumo = "Sin datos suficientes (carga anterior no tiene kilometraje)";
+            // Calculos de distancia
+            if ($km_actual !== null && $km_actual > 0 && $km_anterior !== null && $km_anterior > 0) {
+                if ($km_actual <= $km_anterior) {
+                    $error_consumo = "El kilometraje actual ($km_actual) es menor o igual al anterior ($km_anterior)";
+                } else {
+                    $km_recorridos = $km_actual - $km_anterior;
+                    if ($litros > 0) {
+                        $km_por_litro = round($km_recorridos / $litros, 2);
+                        $litros_cada_100km = round(($litros * 100) / $km_recorridos, 2);
+                        $costo_por_km = round($total_actual / $km_recorridos, 2);
                     }
                 }
+            }
 
-                // 2. Hour calculations
-                if ($isPorHora && $horas_actual !== null && $horas_actual > 0) {
-                    if ($horas_anterior !== null && $horas_anterior > 0) {
-                        if ($horas_actual <= $horas_anterior) {
-                            $error_horas = "Las horas actuales ($horas_actual) son menores o iguales a las anteriores ($horas_anterior)";
-                            $error_consumo = $error_consumo ? $error_consumo . " | " . $error_horas : $error_horas;
-                        } else {
-                            $hs_recorridas = $horas_actual - $horas_anterior;
-                            if ($litros > 0) {
-                                $litros_por_hora = round($hs_recorridas / $litros, 2);
-                                $costo_por_hora = round($total_actual / $hs_recorridas, 2);
-                            }
-                        }
-                    } else {
-                        $error_horas = "Sin datos suficientes (carga anterior no tiene horas)";
-                        $error_consumo = $error_consumo ? $error_consumo . " | " . $error_horas : $error_horas;
+            // Calculos de horas (solo para camiones por hora)
+            if ($isPorHora && $horas_actual !== null && $horas_actual > 0 && $horas_anterior !== null && $horas_anterior > 0) {
+                if ($horas_actual <= $horas_anterior) {
+                    $error_horas = "Las horas actuales ($horas_actual) son menores o iguales a las anteriores ($horas_anterior)";
+                    $error_consumo = $error_consumo ? $error_consumo . " | " . $error_horas : $error_horas;
+                } else {
+                    $hs_recorridas = $horas_actual - $horas_anterior;
+                    if ($litros > 0) {
+                        $litros_por_hora = round($hs_recorridas / $litros, 2);
+                        $costo_por_hora = round($total_actual / $hs_recorridas, 2);
                     }
                 }
             }

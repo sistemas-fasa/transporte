@@ -114,7 +114,19 @@ try {
                 LEFT JOIN camiones cx ON h.cachape_id = cx.id_camion
                 WHERE h.id_hoja = ?");
             $stmt->execute([$id]);
-            echo json_encode($stmt->fetch() ?: []);
+            $row = $stmt->fetch();
+            // Horas trabajadas: si no hay hs_llegada, tomar la hs_salida del siguiente viaje del mismo camion
+            if ($row && $row['hs_salida'] !== null && $row['hs_llegada'] === null) {
+                try {
+                    $stmtNx = $db->prepare("SELECT hs_salida FROM km_recorrido WHERE id_camion = ? AND (fecha > ? OR (fecha = ? AND id_hoja > ?)) AND hs_salida IS NOT NULL ORDER BY fecha ASC, id_hoja ASC LIMIT 1");
+                    $stmtNx->execute([$row['id_camion'], $row['fecha'], $row['fecha'], $row['id_hoja']]);
+                    $nx = $stmtNx->fetchColumn();
+                    if ($nx !== false && (float)$nx >= (float)$row['hs_salida']) {
+                        $row['hs_recorridas'] = (float)$nx - (float)$row['hs_salida'];
+                    }
+                } catch (Exception $e) {}
+            }
+            echo json_encode($row ?: []);
             break;
 
         case 'precargar_viaje':

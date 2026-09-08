@@ -1,316 +1,539 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
-$tab = $_GET['tab'] ?? 'accesos';
-$pageTitle = 'Auditoria - ' . ($tab === 'accesos' ? 'Accesos' : 'Operaciones');
+
+$pageTitle = 'Auditoría del Sistema';
+$db = getDB();
+
+// ─── Asegurar que las tablas de auditoría existan ───
+try {
+    $db->exec("CREATE TABLE IF NOT EXISTS auditoria (
+        id_auditoria INT AUTO_INCREMENT PRIMARY KEY,
+        id_usuario INT DEFAULT NULL,
+        accion VARCHAR(50) NOT NULL,
+        tabla VARCHAR(50) DEFAULT NULL,
+        id_registro INT DEFAULT NULL,
+        detalle TEXT DEFAULT NULL,
+        ip_address VARCHAR(45) DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_usuario (id_usuario),
+        INDEX idx_tabla (tabla),
+        INDEX idx_fecha (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $db->exec("CREATE TABLE IF NOT EXISTS auditoria_accesos (
+        id_auditoria_acceso INT AUTO_INCREMENT PRIMARY KEY,
+        id_usuario INT DEFAULT NULL,
+        fecha_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ip_address VARCHAR(45) DEFAULT NULL,
+        accion VARCHAR(100) NOT NULL,
+        modulo VARCHAR(50) DEFAULT NULL,
+        id_registro INT DEFAULT NULL,
+        detalle TEXT,
+        user_agent VARCHAR(500) DEFAULT NULL,
+        INDEX idx_usuario (id_usuario),
+        INDEX idx_fecha (fecha_hora)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Exception $e) {
+    error_log("Error inicializando tablas de auditoria: " . $e->getMessage());
+}
+
+// ─── Exportar a CSV si se solicita ───
+if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    $tipoExport = $_GET['tab'] ?? 'operaciones';
+    $desdeExp = $_GET['desde'] ?? date('Y-m-d', strtotime('-30 days'));
+    $hastaExp = $_GET['hasta'] ?? date('Y-m-d');
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=auditoria_' . $tipoExport . '_' . date('Ymd_His') . '.csv');
+    $output = fopen('php://output', 'w');
+    // BOM para Excel UTF-8
+    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+
+    if ($tipoExport === 'accesos') {
+        fputcsv($output, ['ID', 'Fecha y Hora', 'Usuario', 'Acción', 'Módulo', 'Detalle', 'IP', 'User Agent']);
+        $stmtExp = $db->prepare("SELECT a.*, u.username FROM auditoria_accesos a LEFT JOIN usuarios u ON a.id_usuario = u.id_usuario WHERE DATE(a.fecha_hora) BETWEEN ? AND ? ORDER BY a.fecha_hora DESC");
+        $stmtExp->execute([$desdeExp, $hastaExp]);
+        while ($row = $stmtExp->fetch()) {
+            fputcsv($output, [
+                $row['id_auditoria_acceso'],
+                $row['fecha_hora'],
+                $row['username'] ?: 'ID #' . $row['id_usuario'],
+                $row['accion'],
+                $row['modulo'] ?: '-',
+                $row['detalle'] ?: '-',
+                $row['ip_address'] ?: '-',
+                $row['user_agent'] ?: '-'
+            ]);
+        }
+    } else {
+        fputcsv($output, ['ID', 'Fecha y Hora', 'Usuario', 'Acción', 'Tabla / Entidad', 'ID Registro', 'Detalle', 'IP']);
+        $stmtExp = $db->prepare("SELECT a.*, u.username FROM auditoria a LEFT JOIN usuarios u ON a.id_usuario = u.id_usuario WHERE DATE(a.created_at) BETWEEN ? AND ? ORDER BY a.created_at DESC");
+        $stmtExp->execute([$desdeExp, $hastaExp]);
+        while ($row = $stmtExp->fetch()) {
+            fputcsv($output, [
+                $row['id_auditoria'],
+                $row['created_at'],
+                $row['username'] ?: 'ID #' . $row['id_usuario'],
+                $row['accion'],
+                $row['tabla'] ?: '-',
+                $row['id_registro'] ?: '-',
+                $row['detalle'] ?: '-',
+                $row['ip_address'] ?: '-'
+            ]);
+        }
+    }
+    fclose($output);
+    exit;
+}
+
+$tab = $_GET['tab'] ?? 'operaciones';
+if (!in_array($tab, ['operaciones', 'accesos'])) {
+    $tab = 'operaciones';
+}
+
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
 
-$db = getDB();
-
 // ─── Filtros ───
-$filtro_usuario = $_GET['usuario'] ?? '';
-$filtro_accion = $_GET['accion'] ?? '';
-$filtro_modulo = $_GET['modulo'] ?? '';
+$filtro_usuario = trim($_GET['usuario'] ?? '');
+$filtro_accion = trim($_GET['accion'] ?? '');
+$filtro_modulo = trim($_GET['modulo'] ?? '');
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-30 days'));
 $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $limite = (int)($_GET['limite'] ?? 100);
 if ($limite < 10) $limite = 10;
-if ($limite > 500) $limite = 500;
+if ($limite > 1000) $limite = 1000;
 
-// ─── Accesos (auditoria_accesos) ───
-$sql = "SELECT a.*, u.username, u.nombre, u.apellido
+// ─── 1. Accesos (auditoria_accesos) ───
+$sqlAccesos = "SELECT a.*, u.username, u.email
         FROM auditoria_accesos a
         LEFT JOIN usuarios u ON a.id_usuario = u.id_usuario
         WHERE DATE(a.fecha_hora) BETWEEN ? AND ?";
-$params = [$desde, $hasta];
+$paramsAccesos = [$desde, $hasta];
 
-if ($filtro_usuario) {
-    $sql .= " AND (u.username LIKE ? OR u.nombre LIKE ? OR u.apellido LIKE ?)";
-    $params[] = "%$filtro_usuario%"; $params[] = "%$filtro_usuario%"; $params[] = "%$filtro_usuario%";
+if ($filtro_usuario !== '') {
+    $sqlAccesos .= " AND (u.username LIKE ? OR u.email LIKE ? OR a.id_usuario = ?)";
+    $paramsAccesos[] = "%$filtro_usuario%";
+    $paramsAccesos[] = "%$filtro_usuario%";
+    $paramsAccesos[] = is_numeric($filtro_usuario) ? (int)$filtro_usuario : 0;
 }
-if ($filtro_accion) {
-    $sql .= " AND a.accion LIKE ?";
-    $params[] = "%$filtro_accion%";
+if ($filtro_accion !== '') {
+    $sqlAccesos .= " AND a.accion LIKE ?";
+    $paramsAccesos[] = "%$filtro_accion%";
 }
-if ($filtro_modulo) {
-    $sql .= " AND a.modulo = ?";
-    $params[] = $filtro_modulo;
+if ($filtro_modulo !== '') {
+    $sqlAccesos .= " AND a.modulo = ?";
+    $paramsAccesos[] = $filtro_modulo;
 }
 
-$sql .= " ORDER BY a.fecha_hora DESC LIMIT " . $limite;
-$registrosList = [];
-try {
-    $registros = $db->prepare($sql);
-    $registros->execute($params);
-    $registrosList = $registros->fetchAll();
-} catch (PDOException $e) {}
+$sqlAccesos .= " ORDER BY a.fecha_hora DESC LIMIT " . $limite;
 
-$modulos = [];
-$acciones = [];
+$registrosAccesos = [];
 try {
-    $modulos = $db->query("SELECT DISTINCT modulo FROM auditoria_accesos WHERE modulo IS NOT NULL ORDER BY modulo")->fetchAll(PDO::FETCH_COLUMN);
-} catch (PDOException $e) {}
-try {
-    $acciones = $db->query("SELECT DISTINCT accion FROM auditoria_accesos ORDER BY accion")->fetchAll(PDO::FETCH_COLUMN);
-} catch (PDOException $e) {}
+    $stmtAcc = $db->prepare($sqlAccesos);
+    $stmtAcc->execute($paramsAccesos);
+    $registrosAccesos = $stmtAcc->fetchAll();
+} catch (Exception $e) {
+    error_log("Error query auditoria_accesos: " . $e->getMessage());
+}
 
-// ─── Operaciones CRUD (auditoria) ───
-$crudSql = "SELECT a.*, u.username, u.nombre, u.apellido
+// ─── 2. Operaciones CRUD (auditoria) ───
+$sqlCrud = "SELECT a.*, u.username, u.email
         FROM auditoria a
         LEFT JOIN usuarios u ON a.id_usuario = u.id_usuario
         WHERE DATE(a.created_at) BETWEEN ? AND ?";
-$crudParams = [$desde, $hasta];
+$paramsCrud = [$desde, $hasta];
 
-if ($filtro_usuario) {
-    $crudSql .= " AND (u.username LIKE ? OR u.nombre LIKE ? OR u.apellido LIKE ?)";
-    $crudParams[] = "%$filtro_usuario%"; $crudParams[] = "%$filtro_usuario%"; $crudParams[] = "%$filtro_usuario%";
+if ($filtro_usuario !== '') {
+    $sqlCrud .= " AND (u.username LIKE ? OR u.email LIKE ? OR a.id_usuario = ?)";
+    $paramsCrud[] = "%$filtro_usuario%";
+    $paramsCrud[] = "%$filtro_usuario%";
+    $paramsCrud[] = is_numeric($filtro_usuario) ? (int)$filtro_usuario : 0;
 }
-if ($filtro_accion) {
-    $crudSql .= " AND a.accion LIKE ?";
-    $crudParams[] = "%$filtro_accion%";
+if ($filtro_accion !== '') {
+    $sqlCrud .= " AND a.accion LIKE ?";
+    $paramsCrud[] = "%$filtro_accion%";
 }
-if ($filtro_modulo) {
-    $crudSql .= " AND a.tabla = ?";
-    $crudParams[] = $filtro_modulo;
+if ($filtro_modulo !== '') {
+    $sqlCrud .= " AND a.tabla = ?";
+    $paramsCrud[] = $filtro_modulo;
 }
 
-$crudSql .= " ORDER BY a.created_at DESC LIMIT " . $limite;
-$crudList = [];
+$sqlCrud .= " ORDER BY a.created_at DESC LIMIT " . $limite;
+
+$registrosCrud = [];
 try {
-    $crud = $db->prepare($crudSql);
-    $crud->execute($crudParams);
-    $crudList = $crud->fetchAll();
-} catch (PDOException $e) {
-    // Tabla puede no existir
+    $stmtCrud = $db->prepare($sqlCrud);
+    $stmtCrud->execute($paramsCrud);
+    $registrosCrud = $stmtCrud->fetchAll();
+} catch (Exception $e) {
+    error_log("Error query auditoria: " . $e->getMessage());
 }
+
+// Opciones para combos de filtro
+$modulosAccesos = [];
+$accionesAccesos = [];
+try {
+    $modulosAccesos = $db->query("SELECT DISTINCT modulo FROM auditoria_accesos WHERE modulo IS NOT NULL AND modulo != '' ORDER BY modulo")->fetchAll(PDO::FETCH_COLUMN);
+    $accionesAccesos = $db->query("SELECT DISTINCT accion FROM auditoria_accesos WHERE accion IS NOT NULL ORDER BY accion")->fetchAll(PDO::FETCH_COLUMN);
+} catch (Exception $e) {}
 
 $tablasCrud = [];
-try {
-    $tablasCrud = $db->query("SELECT DISTINCT tabla FROM auditoria WHERE tabla IS NOT NULL ORDER BY tabla")->fetchAll(PDO::FETCH_COLUMN);
-} catch (PDOException $e) {}
-
 $accionesCrud = [];
 try {
-    $accionesCrud = $db->query("SELECT DISTINCT accion FROM auditoria ORDER BY accion")->fetchAll(PDO::FETCH_COLUMN);
-} catch (PDOException $e) {}
+    $tablasCrud = $db->query("SELECT DISTINCT tabla FROM auditoria WHERE tabla IS NOT NULL AND tabla != '' ORDER BY tabla")->fetchAll(PDO::FETCH_COLUMN);
+    $accionesCrud = $db->query("SELECT DISTINCT accion FROM auditoria WHERE accion IS NOT NULL ORDER BY accion")->fetchAll(PDO::FETCH_COLUMN);
+} catch (Exception $e) {}
+
+// KPIs Generales
+$kpiTotalOperaciones = (int)$db->query("SELECT COUNT(*) FROM auditoria")->fetchColumn();
+$kpiTotalAccesos = (int)$db->query("SELECT COUNT(*) FROM auditoria_accesos")->fetchColumn();
+$kpiUsuariosAuditados = (int)$db->query("SELECT COUNT(DISTINCT id_usuario) FROM auditoria WHERE id_usuario IS NOT NULL")->fetchColumn();
+$kpiUltimaActividad = $db->query("SELECT MAX(created_at) FROM auditoria")->fetchColumn();
 ?>
 
-<main class="pt-20 pb-24 md:pb-8 md:pl-64 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto">
-<div class="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
-<div>
-<h2 class="font-headline-lg text-headline-lg text-primary">Auditoria</h2>
-<p class="font-body-md text-body-md text-on-surface-variant">Registro detallado de actividad del sistema.</p>
-</div>
-<div class="flex gap-2">
-<a href="?tab=accesos&desde=<?= date('Y-m-d') ?>&hasta=<?= date('Y-m-d') ?>" class="px-4 py-2 border border-outline text-primary rounded-lg font-bold text-sm hover:bg-surface-container-low">Hoy</a>
-<a href="?tab=accesos&desde=<?= date('Y-m-d', strtotime('-7 days')) ?>&hasta=<?= date('Y-m-d') ?>" class="px-4 py-2 border border-outline text-primary rounded-lg font-bold text-sm hover:bg-surface-container-low">7 dias</a>
-<a href="?tab=accesos&desde=<?= date('Y-m-d', strtotime('-30 days')) ?>&hasta=<?= date('Y-m-d') ?>" class="px-4 py-2 border border-outline text-primary rounded-lg font-bold text-sm hover:bg-surface-container-low">30 dias</a>
-</div>
-</div>
+<div class="md:ml-64 pt-20 px-4 md:px-8 pb-16 min-h-screen bg-surface">
+    <!-- Encabezado Principal -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <div>
+            <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-primary/10 rounded-xl text-primary flex items-center justify-center">
+                    <span class="material-symbols-outlined text-2xl">security</span>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold text-on-surface tracking-tight">Auditoría y Registro de Actividad</h1>
+                    <p class="text-sm text-on-surface-variant">Trazabilidad detallada de cambios, operaciones y accesos al sistema.</p>
+                </div>
+            </div>
+        </div>
 
-<!-- Tabs -->
-<div class="flex gap-1 mb-8 bg-surface-container-low p-1 rounded-xl border border-outline-variant w-fit">
-<a href="?tab=accesos<?= $filtro_usuario ? '&usuario=' . urlencode($filtro_usuario) : '' ?><?= $filtro_accion ? '&accion=' . urlencode($filtro_accion) : '' ?><?= $filtro_modulo ? '&modulo=' . urlencode($filtro_modulo) : '' ?>&desde=<?= $desde ?>&hasta=<?= $hasta ?>&limite=<?= $limite ?>" class="px-5 py-2 rounded-lg font-bold text-sm transition-all <?= $tab === 'accesos' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high' ?>">
-<span class="material-symbols-outlined text-sm align-text-bottom">login</span> Accesos
-</a>
-<a href="?tab=operaciones<?= $filtro_usuario ? '&usuario=' . urlencode($filtro_usuario) : '' ?><?= $filtro_accion ? '&accion=' . urlencode($filtro_accion) : '' ?><?= $filtro_modulo ? '&modulo=' . urlencode($filtro_modulo) : '' ?>&desde=<?= $desde ?>&hasta=<?= $hasta ?>&limite=<?= $limite ?>" class="px-5 py-2 rounded-lg font-bold text-sm transition-all <?= $tab === 'operaciones' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high' ?>">
-<span class="material-symbols-outlined text-sm align-text-bottom">history</span> Operaciones CRUD
-</a>
-</div>
+        <!-- Botones de Rango Rápido y Exportación -->
+        <div class="flex flex-wrap items-center gap-2">
+            <a href="?tab=<?= $tab ?>&desde=<?= date('Y-m-d') ?>&hasta=<?= date('Y-m-d') ?>" class="px-3 py-2 bg-white border border-outline-variant text-xs font-bold rounded-xl hover:bg-slate-50 transition-all <?= ($desde === date('Y-m-d') && $hasta === date('Y-m-d')) ? 'bg-slate-100 border-primary text-primary' : 'text-slate-700' ?>">
+                Hoy
+            </a>
+            <a href="?tab=<?= $tab ?>&desde=<?= date('Y-m-d', strtotime('-7 days')) ?>&hasta=<?= date('Y-m-d') ?>" class="px-3 py-2 bg-white border border-outline-variant text-xs font-bold rounded-xl hover:bg-slate-50 transition-all <?= ($desde === date('Y-m-d', strtotime('-7 days')) && $hasta === date('Y-m-d')) ? 'bg-slate-100 border-primary text-primary' : 'text-slate-700' ?>">
+                7 días
+            </a>
+            <a href="?tab=<?= $tab ?>&desde=<?= date('Y-m-d', strtotime('-30 days')) ?>&hasta=<?= date('Y-m-d') ?>" class="px-3 py-2 bg-white border border-outline-variant text-xs font-bold rounded-xl hover:bg-slate-50 transition-all <?= ($desde === date('Y-m-d', strtotime('-30 days')) && $hasta === date('Y-m-d')) ? 'bg-slate-100 border-primary text-primary' : 'text-slate-700' ?>">
+                30 días
+            </a>
+            <a href="?tab=<?= $tab ?>&export=csv&desde=<?= $desde ?>&hasta=<?= $hasta ?>" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all">
+                <span class="material-symbols-outlined text-sm">download</span>
+                <span>Exportar CSV</span>
+            </a>
+        </div>
+    </div>
 
-<!-- Filters -->
-<div class="bg-surface-container-lowest border border-outline-variant p-4 rounded-xl mb-8">
-<form method="GET" class="flex flex-wrap items-end gap-4">
-<input type="hidden" name="tab" value="<?= $tab ?>"/>
-<div>
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Desde</label>
-<input type="date" name="desde" value="<?= $desde ?>" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm"/>
-</div>
-<div>
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Hasta</label>
-<input type="date" name="hasta" value="<?= $hasta ?>" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm"/>
-</div>
-<div>
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Usuario</label>
-<input type="text" name="usuario" value="<?= htmlspecialchars($filtro_usuario) ?>" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm w-32" placeholder="Buscar..."/>
-</div>
-<div>
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Accion</label>
-<select name="accion" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm">
-<option value="">Todas</option>
-<?php $accionOpts = $tab === 'operaciones' ? $accionesCrud : $acciones; ?>
-<?php foreach ($accionOpts as $a): ?>
-<option value="<?= htmlspecialchars($a) ?>" <?= $filtro_accion === $a ? 'selected' : '' ?>><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $a))) ?></option>
-<?php endforeach; ?>
-</select>
-</div>
-<div>
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs"><?= $tab === 'operaciones' ? 'Tabla' : 'Modulo' ?></label>
-<select name="modulo" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm">
-<option value="">Todos</option>
-<?php $modOpts = $tab === 'operaciones' ? $tablasCrud : $modulos; ?>
-<?php foreach ($modOpts as $m): ?>
-<option value="<?= htmlspecialchars($m) ?>" <?= $filtro_modulo === $m ? 'selected' : '' ?>><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $m))) ?></option>
-<?php endforeach; ?>
-</select>
-</div>
-<div>
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Limite</label>
-<select name="limite" class="border border-outline-variant rounded p-2 bg-surface-container-low text-sm">
-<option value="50" <?= $limite === 50 ? 'selected' : '' ?>>50</option>
-<option value="100" <?= $limite === 100 ? 'selected' : '' ?>>100</option>
-<option value="200" <?= $limite === 200 ? 'selected' : '' ?>>200</option>
-<option value="500" <?= $limite === 500 ? 'selected' : '' ?>>500</option>
-</select>
-</div>
-<button type="submit" class="px-4 py-2 bg-primary text-on-primary rounded-lg font-bold text-sm">Filtrar</button>
-</form>
-</div>
+    <!-- KPI Summary Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="bg-white p-4 rounded-2xl border border-outline-variant/60 shadow-sm flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">Operaciones CRUD</p>
+                <h3 class="text-2xl font-bold text-primary mt-1"><?= number_format($kpiTotalOperaciones) ?></h3>
+            </div>
+            <div class="w-11 h-11 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+                <span class="material-symbols-outlined text-2xl">history</span>
+            </div>
+        </div>
 
-<?php if ($tab === 'accesos'): ?>
+        <div class="bg-white p-4 rounded-2xl border border-outline-variant/60 shadow-sm flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">Inicios de Sesión</p>
+                <h3 class="text-2xl font-bold text-emerald-600 mt-1"><?= number_format($kpiTotalAccesos) ?></h3>
+            </div>
+            <div class="w-11 h-11 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                <span class="material-symbols-outlined text-2xl">login</span>
+            </div>
+        </div>
 
-<!-- Summary Cards -->
-<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-<?php
-$totalReg = count($registrosList ?? []);
-$totalAcciones = 0;
-$totalUsuariosActivos = 0;
-$ultimaActividad = null;
-try {
-    $totalAcciones = $db->query("SELECT COUNT(DISTINCT accion) FROM auditoria_accesos WHERE DATE(fecha_hora) BETWEEN '$desde' AND '$hasta'")->fetchColumn();
-    $totalUsuariosActivos = $db->query("SELECT COUNT(DISTINCT id_usuario) FROM auditoria_accesos WHERE DATE(fecha_hora) BETWEEN '$desde' AND '$hasta'")->fetchColumn();
-    $ultimaActividad = $db->query("SELECT MAX(fecha_hora) FROM auditoria_accesos")->fetchColumn();
-} catch (PDOException $e) {}
-?>
-<div class="bg-surface-container-lowest border border-outline-variant p-4">
-<p class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Registros</p>
-<p class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($totalReg) ?></p>
-</div>
-<div class="bg-surface-container-lowest border border-outline-variant p-4">
-<p class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Acciones</p>
-<p class="font-headline-md text-headline-md text-primary mt-1"><?= $totalAcciones ?></p>
-</div>
-<div class="bg-surface-container-lowest border border-outline-variant p-4">
-<p class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Usuarios</p>
-<p class="font-headline-md text-headline-md text-primary mt-1"><?= $totalUsuariosActivos ?></p>
-</div>
-<div class="bg-surface-container-lowest border border-outline-variant p-4">
-<p class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Ultima Act.</p>
-<p class="font-headline-md text-headline-md text-primary mt-1 text-sm"><?= $ultimaActividad ? date('d/m H:i', strtotime($ultimaActividad)) : '-' ?></p>
-</div>
-</div>
+        <div class="bg-white p-4 rounded-2xl border border-outline-variant/60 shadow-sm flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">Usuarios Registrados</p>
+                <h3 class="text-2xl font-bold text-indigo-600 mt-1"><?= number_format($kpiUsuariosAuditados) ?></h3>
+            </div>
+            <div class="w-11 h-11 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                <span class="material-symbols-outlined text-2xl">group</span>
+            </div>
+        </div>
 
-<!-- Access Logs Table -->
-<div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap">
-<div class="p-6 border-b border-outline-variant">
-<h3 class="font-headline-sm text-headline-sm text-primary uppercase">Registro de Accesos</h3>
-</div>
-<table class="w-full">
-<thead class="bg-surface-container-high/50">
-<tr>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">FECHA/HORA</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">USUARIO</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">ACCION</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">MODULO</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">DETALLE</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">IP</th>
-</tr>
-</thead>
-<tbody class="divide-y divide-outline-variant">
-<?php if (empty($registrosList)): ?>
-<tr><td colspan="6" class="px-6 py-12 text-center text-on-surface-variant">No se encontraron registros para los filtros seleccionados</td></tr>
-<?php else: ?>
-<?php foreach ($registrosList as $r): ?>
-<tr class="hover:bg-surface-container transition-colors text-sm">
-<td class="px-6 py-4 font-data-mono whitespace-nowrap"><?= date('d/m/Y H:i:s', strtotime($r['fecha_hora'])) ?></td>
-<td class="px-6 py-4">
-<?php if ($r['id_usuario']): ?>
-<span class="font-medium"><?= htmlspecialchars($r['username'] ?? 'Usuario #' . $r['id_usuario']) ?></span>
-<?php else: ?>
-<span class="text-on-surface-variant">-</span>
-<?php endif; ?>
-</td>
-<td class="px-6 py-4">
-<?php
-$accionClass = '';
-if (strpos($r['accion'], 'inicio_sesion') !== false) $accionClass = 'text-green-600';
-elseif (strpos($r['accion'], 'error') !== false || strpos($r['accion'], 'fallido') !== false) $accionClass = 'text-red-600';
-elseif (strpos($r['accion'], 'creacion') !== false || strpos($r['accion'], 'create') !== false) $accionClass = 'text-blue-600';
-elseif (strpos($r['accion'], 'cambio') !== false) $accionClass = 'text-amber-600';
-?>
-<span class="font-medium <?= $accionClass ?>"><?= htmlspecialchars(str_replace('_', ' ', $r['accion'])) ?></span>
-</td>
-<td class="px-6 py-4"><?= htmlspecialchars($r['modulo'] ?? '-') ?></td>
-<td class="px-6 py-4 max-w-xs truncate" title="<?= htmlspecialchars($r['detalle'] ?? '') ?>"><?= htmlspecialchars($r['detalle'] ?? '-') ?></td>
-<td class="px-6 py-4 font-data-mono text-on-surface-variant"><?= htmlspecialchars($r['ip_address'] ?? '-') ?></td>
-</tr>
-<?php endforeach; ?>
-<?php endif; ?>
-</tbody>
-</table>
-</div>
+        <div class="bg-white p-4 rounded-2xl border border-outline-variant/60 shadow-sm flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold text-on-surface-variant uppercase tracking-wider">Último Evento</p>
+                <h3 class="text-sm font-bold text-slate-800 mt-1"><?= $kpiUltimaActividad ? date('d/m/Y H:i', strtotime($kpiUltimaActividad)) : 'Sin registros' ?></h3>
+            </div>
+            <div class="w-11 h-11 bg-slate-100 text-slate-600 rounded-xl flex items-center justify-center">
+                <span class="material-symbols-outlined text-2xl">schedule</span>
+            </div>
+        </div>
+    </div>
 
-<?php elseif ($tab === 'operaciones'): ?>
+    <!-- Navegación por Pestañas -->
+    <div class="border-b border-outline-variant mb-6">
+        <nav class="flex space-x-6 overflow-x-auto no-scrollbar">
+            <a href="?tab=operaciones&desde=<?= $desde ?>&hasta=<?= $hasta ?>" class="pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap <?= $tab === 'operaciones' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface' ?>">
+                <span class="material-symbols-outlined text-lg">edit_note</span>
+                Operaciones del Sistema (CRUD)
+                <span class="px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-700"><?= count($registrosCrud) ?></span>
+            </a>
 
-<!-- CRUD Operations Table -->
-<div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap">
-<div class="p-6 border-b border-outline-variant">
-<h3 class="font-headline-sm text-headline-sm text-primary uppercase">Operaciones CRUD</h3>
+            <a href="?tab=accesos&desde=<?= $desde ?>&hasta=<?= $hasta ?>" class="pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap <?= $tab === 'accesos' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface' ?>">
+                <span class="material-symbols-outlined text-lg">vpn_key</span>
+                Registro de Accesos y Logins
+                <span class="px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-700"><?= count($registrosAccesos) ?></span>
+            </a>
+        </nav>
+    </div>
+
+    <!-- Filtros de Búsqueda -->
+    <div class="bg-white p-4 rounded-2xl border border-outline-variant/60 shadow-sm mb-6">
+        <form method="GET" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+            <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
+
+            <div>
+                <label class="block text-xs font-semibold text-on-surface-variant mb-1">Fecha Desde</label>
+                <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" class="w-full px-3 py-2 text-sm bg-slate-50 border border-outline-variant rounded-xl">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-on-surface-variant mb-1">Fecha Hasta</label>
+                <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" class="w-full px-3 py-2 text-sm bg-slate-50 border border-outline-variant rounded-xl">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-on-surface-variant mb-1">Usuario</label>
+                <input type="text" name="usuario" value="<?= htmlspecialchars($filtro_usuario) ?>" placeholder="Buscar usuario..." class="w-full px-3 py-2 text-sm bg-slate-50 border border-outline-variant rounded-xl">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-on-surface-variant mb-1">Acción</label>
+                <select name="accion" class="w-full px-3 py-2 text-sm bg-slate-50 border border-outline-variant rounded-xl">
+                    <option value="">Todas las acciones</option>
+                    <?php $listaAcc = ($tab === 'operaciones') ? $accionesCrud : $accionesAccesos; ?>
+                    <?php foreach ($listaAcc as $a): ?>
+                    <option value="<?= htmlspecialchars($a) ?>" <?= $filtro_accion === $a ? 'selected' : '' ?>>
+                        <?= htmlspecialchars(ucfirst(str_replace('_', ' ', $a))) ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-on-surface-variant mb-1"><?= $tab === 'operaciones' ? 'Tabla / Módulo' : 'Módulo' ?></label>
+                <select name="modulo" class="w-full px-3 py-2 text-sm bg-slate-50 border border-outline-variant rounded-xl">
+                    <option value="">Todos</option>
+                    <?php $listaMod = ($tab === 'operaciones') ? $tablasCrud : $modulosAccesos; ?>
+                    <?php foreach ($listaMod as $m): ?>
+                    <option value="<?= htmlspecialchars($m) ?>" <?= $filtro_modulo === $m ? 'selected' : '' ?>>
+                        <?= htmlspecialchars(ucfirst(str_replace('_', ' ', $m))) ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button type="submit" class="flex-1 py-2 px-4 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-1">
+                    <span class="material-symbols-outlined text-sm">filter_alt</span> Filtrar
+                </button>
+                <a href="?tab=<?= $tab ?>" class="py-2 px-3 bg-slate-100 text-slate-700 hover:bg-slate-200 text-sm font-semibold rounded-xl transition-all" title="Limpiar filtros">
+                    <span class="material-symbols-outlined text-sm">refresh</span>
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- TAB 1: OPERACIONES CRUD (CREACIONES, CAMBIOS, ELIMINACIONES)  -->
+    <!-- ============================================================= -->
+    <?php if ($tab === 'operaciones'): ?>
+    <div class="bg-white rounded-3xl border border-outline-variant/60 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-on-surface border-collapse">
+                <thead class="bg-slate-50 text-xs uppercase font-semibold text-on-surface-variant border-b border-outline-variant">
+                    <tr>
+                        <th class="py-3.5 px-4 w-16"># ID</th>
+                        <th class="py-3.5 px-4">Fecha y Hora</th>
+                        <th class="py-3.5 px-4">Usuario</th>
+                        <th class="py-3.5 px-4 text-center">Acción</th>
+                        <th class="py-3.5 px-4">Entidad / Módulo</th>
+                        <th class="py-3.5 px-4">ID Reg.</th>
+                        <th class="py-3.5 px-4">Detalle del Cambio</th>
+                        <th class="py-3.5 px-4 font-mono text-xs">IP</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-outline-variant/50">
+                    <?php if (empty($registrosCrud)): ?>
+                    <tr>
+                        <td colspan="8" class="py-12 text-center text-on-surface-variant">
+                            <div class="flex flex-col items-center justify-center">
+                                <span class="material-symbols-outlined text-5xl text-slate-300 mb-2">history_toggle_off</span>
+                                <p class="font-medium text-base text-slate-600">No se encontraron operaciones registradas</p>
+                                <p class="text-xs text-slate-400 mt-1">Las altas, bajas y modificaciones realizadas en los distintos módulos se listarán aquí.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php else: ?>
+                    <?php foreach ($registrosCrud as $r): ?>
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="py-3.5 px-4 font-mono font-semibold text-slate-400">#<?= $r['id_auditoria'] ?></td>
+                        <td class="py-3.5 px-4 whitespace-nowrap">
+                            <p class="font-semibold text-slate-800"><?= date('d/m/Y', strtotime($r['created_at'])) ?></p>
+                            <p class="text-xs text-slate-500 font-mono"><?= date('H:i:s', strtotime($r['created_at'])) ?></p>
+                        </td>
+                        <td class="py-3.5 px-4 whitespace-nowrap">
+                            <div class="flex items-center gap-2">
+                                <div class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-primary font-bold text-xs">
+                                    <?= strtoupper(substr($r['username'] ?: 'U', 0, 1)) ?>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-slate-900"><?= htmlspecialchars($r['username'] ?: 'Usuario #' . $r['id_usuario']) ?></p>
+                                    <?php if (!empty($r['email'])): ?>
+                                    <p class="text-[10px] text-slate-400"><?= htmlspecialchars($r['email']) ?></p>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="py-3.5 px-4 text-center whitespace-nowrap">
+                            <?php
+                            $acc = strtolower($r['accion']);
+                            $badgeClass = 'bg-slate-100 text-slate-700';
+                            $icon = 'info';
+
+                            if (in_array($acc, ['create', 'crear', 'alta', 'creacion'])) {
+                                $badgeClass = 'bg-emerald-100 text-emerald-800 border border-emerald-200';
+                                $icon = 'add_circle';
+                            } elseif (in_array($acc, ['update', 'editar', 'modificar', 'actualizar'])) {
+                                $badgeClass = 'bg-blue-100 text-blue-800 border border-blue-200';
+                                $icon = 'edit';
+                            } elseif (in_array($acc, ['delete', 'eliminar', 'baja', 'desactivar'])) {
+                                $badgeClass = 'bg-red-100 text-red-800 border border-red-200';
+                                $icon = 'delete';
+                            } elseif (in_array($acc, ['asignar', 'asignar_vehiculo', 'asociar_chofer', 'asociar_usuario'])) {
+                                $badgeClass = 'bg-amber-100 text-amber-800 border border-amber-200';
+                                $icon = 'link';
+                            } elseif (in_array($acc, ['activar', 'reset_password'])) {
+                                $badgeClass = 'bg-purple-100 text-purple-800 border border-purple-200';
+                                $icon = 'key';
+                            }
+                            ?>
+                            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold uppercase <?= $badgeClass ?>">
+                                <span class="material-symbols-outlined text-xs"><?= $icon ?></span>
+                                <?= htmlspecialchars($r['accion']) ?>
+                            </span>
+                        </td>
+                        <td class="py-3.5 px-4">
+                            <span class="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-slate-100 text-slate-700">
+                                <?= htmlspecialchars($r['tabla'] ?: 'General') ?>
+                            </span>
+                        </td>
+                        <td class="py-3.5 px-4 font-mono text-xs font-bold text-slate-500">
+                            <?= $r['id_registro'] ? '#' . $r['id_registro'] : '-' ?>
+                        </td>
+                        <td class="py-3.5 px-4 text-slate-800 font-medium max-w-md">
+                            <?= htmlspecialchars($r['detalle'] ?: '-') ?>
+                        </td>
+                        <td class="py-3.5 px-4 font-mono text-xs text-slate-500 whitespace-nowrap">
+                            <?= htmlspecialchars($r['ip_address'] ?: '-') ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- ============================================================= -->
+    <!-- TAB 2: ACCESOS Y LOGINS                                       -->
+    <!-- ============================================================= -->
+    <?php if ($tab === 'accesos'): ?>
+    <div class="bg-white rounded-3xl border border-outline-variant/60 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-on-surface border-collapse">
+                <thead class="bg-slate-50 text-xs uppercase font-semibold text-on-surface-variant border-b border-outline-variant">
+                    <tr>
+                        <th class="py-3.5 px-4 w-16"># ID</th>
+                        <th class="py-3.5 px-4">Fecha y Hora</th>
+                        <th class="py-3.5 px-4">Usuario</th>
+                        <th class="py-3.5 px-4 text-center">Acción</th>
+                        <th class="py-3.5 px-4">Módulo</th>
+                        <th class="py-3.5 px-4">Detalle</th>
+                        <th class="py-3.5 px-4 font-mono text-xs">IP</th>
+                        <th class="py-3.5 px-4">Navegador / Dispositivo</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-outline-variant/50">
+                    <?php if (empty($registrosAccesos)): ?>
+                    <tr>
+                        <td colspan="8" class="py-12 text-center text-on-surface-variant">
+                            <div class="flex flex-col items-center justify-center">
+                                <span class="material-symbols-outlined text-5xl text-slate-300 mb-2">vpn_key_off</span>
+                                <p class="font-medium text-base text-slate-600">No se encontraron accesos registrados</p>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php else: ?>
+                    <?php foreach ($registrosAccesos as $r): ?>
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="py-3.5 px-4 font-mono font-semibold text-slate-400">#<?= $r['id_auditoria_acceso'] ?></td>
+                        <td class="py-3.5 px-4 whitespace-nowrap">
+                            <p class="font-semibold text-slate-800"><?= date('d/m/Y', strtotime($r['fecha_hora'])) ?></p>
+                            <p class="text-xs text-slate-500 font-mono"><?= date('H:i:s', strtotime($r['fecha_hora'])) ?></p>
+                        </td>
+                        <td class="py-3.5 px-4 whitespace-nowrap">
+                            <div class="flex items-center gap-2">
+                                <div class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-primary font-bold text-xs">
+                                    <?= strtoupper(substr($r['username'] ?: 'U', 0, 1)) ?>
+                                </div>
+                                <div>
+                                    <p class="font-semibold text-slate-900"><?= htmlspecialchars($r['username'] ?: 'Usuario #' . $r['id_usuario']) ?></p>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="py-3.5 px-4 text-center whitespace-nowrap">
+                            <?php
+                            $acc = strtolower($r['accion']);
+                            $badgeClass = 'bg-slate-100 text-slate-700';
+                            $icon = 'info';
+
+                            if (strpos($acc, 'inicio_sesion') !== false || strpos($acc, 'login') !== false) {
+                                $badgeClass = 'bg-emerald-100 text-emerald-800 border border-emerald-200';
+                                $icon = 'login';
+                            } elseif (strpos($acc, 'cierre_sesion') !== false || strpos($acc, 'logout') !== false) {
+                                $badgeClass = 'bg-slate-200 text-slate-800 border border-slate-300';
+                                $icon = 'logout';
+                            } elseif (strpos($acc, 'fallido') !== false || strpos($acc, 'bloqueado') !== false || strpos($acc, 'error') !== false) {
+                                $badgeClass = 'bg-red-100 text-red-800 border border-red-200';
+                                $icon = 'warning';
+                            }
+                            ?>
+                            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold uppercase <?= $badgeClass ?>">
+                                <span class="material-symbols-outlined text-xs"><?= $icon ?></span>
+                                <?= htmlspecialchars(str_replace('_', ' ', $r['accion'])) ?>
+                            </span>
+                        </td>
+                        <td class="py-3.5 px-4 font-semibold text-xs text-slate-700">
+                            <?= htmlspecialchars($r['modulo'] ?: 'General') ?>
+                        </td>
+                        <td class="py-3.5 px-4 text-slate-800 font-medium">
+                            <?= htmlspecialchars($r['detalle'] ?: '-') ?>
+                        </td>
+                        <td class="py-3.5 px-4 font-mono text-xs text-slate-500 whitespace-nowrap">
+                            <?= htmlspecialchars($r['ip_address'] ?: '-') ?>
+                        </td>
+                        <td class="py-3.5 px-4 text-xs text-slate-400 max-w-xs truncate" title="<?= htmlspecialchars($r['user_agent'] ?? '') ?>">
+                            <?= htmlspecialchars($r['user_agent'] ?: '-') ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
-<table class="w-full">
-<thead class="bg-surface-container-high/50">
-<tr>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">FECHA/HORA</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">USUARIO</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">ACCION</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">TABLA</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">ID REG.</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">DETALLE</th>
-<th class="px-6 py-4 font-label-caps text-[10px] text-on-surface-variant text-left">IP</th>
-</tr>
-</thead>
-<tbody class="divide-y divide-outline-variant">
-<?php if (empty($crudList)): ?>
-<tr><td colspan="7" class="px-6 py-12 text-center text-on-surface-variant">No se encontraron registros. Puede que la tabla de auditoria aun no tenga datos.</td></tr>
-<?php else: ?>
-<?php foreach ($crudList as $r): ?>
-<tr class="hover:bg-surface-container transition-colors text-sm">
-<td class="px-6 py-4 font-data-mono whitespace-nowrap"><?= date('d/m/Y H:i:s', strtotime($r['created_at'])) ?></td>
-<td class="px-6 py-4">
-<span class="font-medium"><?= htmlspecialchars($r['username'] ?? 'Usuario #' . $r['id_usuario']) ?></span>
-</td>
-<td class="px-6 py-4">
-<?php
-$cClass = '';
-if ($r['accion'] === 'create') $cClass = 'text-green-600';
-elseif ($r['accion'] === 'update') $cClass = 'text-blue-600';
-elseif ($r['accion'] === 'delete') $cClass = 'text-red-600';
-elseif ($r['accion'] === 'asignar') $cClass = 'text-amber-600';
-?>
-<span class="font-bold uppercase <?= $cClass ?>"><?= htmlspecialchars($r['accion']) ?></span>
-</td>
-<td class="px-6 py-4"><span class="bg-surface-container-high px-2 py-0.5 rounded text-xs font-mono"><?= htmlspecialchars($r['tabla'] ?? '-') ?></span></td>
-<td class="px-6 py-4 font-data-mono"><?= $r['id_registro'] ? '#' . $r['id_registro'] : '-' ?></td>
-<td class="px-6 py-4 max-w-xs truncate" title="<?= htmlspecialchars($r['detalle'] ?? '') ?>"><?= htmlspecialchars($r['detalle'] ?? '-') ?></td>
-<td class="px-6 py-4 font-data-mono text-on-surface-variant"><?= htmlspecialchars($r['ip_address'] ?? '-') ?></td>
-</tr>
-<?php endforeach; ?>
-<?php endif; ?>
-</tbody>
-</table>
-</div>
-
-<?php endif; ?>
-</main>
-
-<script>
-// Filtro por tecla rapida en inputs de texto
-document.querySelectorAll('input[name="usuario"]').forEach(el => {
-el.addEventListener('keyup', function(e) {
-if (e.key === 'Enter') this.closest('form').submit();
-});
-});
-</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

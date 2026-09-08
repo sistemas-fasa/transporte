@@ -16,11 +16,18 @@ function _roleChofer(array $role): bool {
 }
 function loginDefaultPage(): string {
     if (!empty($_SESSION['id_chofer'])) {
+        if (!empty($_SESSION['user_roles'])) {
+            foreach ($_SESSION['user_roles'] as $r) {
+                if (_roleAdminCapable($r)) return BASE_URL . '/admin/dashboard.php';
+                if (preg_match('/mantenimiento/i', $r['nombre'] ?? '')) return BASE_URL . '/chofer/panel.php';
+            }
+        }
         return BASE_URL . '/chofer/panel.php';
     }
     if (!empty($_SESSION['user_roles'])) {
         foreach ($_SESSION['user_roles'] as $r) {
             if (_roleAdminCapable($r)) return BASE_URL . '/admin/dashboard.php';
+            if (preg_match('/mantenimiento/i', $r['nombre'] ?? '')) return BASE_URL . '/chofer/panel.php';
         }
         foreach ($_SESSION['user_roles'] as $r) {
             if (_roleChofer($r)) return BASE_URL . '/chofer/panel.php';

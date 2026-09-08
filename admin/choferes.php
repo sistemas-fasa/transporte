@@ -117,6 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $buscar = $_GET['buscar'] ?? '';
 $sql = "SELECT c.*, e.nombre as empresa_nombre,
         (SELECT COUNT(*) FROM asignaciones WHERE id_chofer = c.id_chofer AND activa = 1) as tiene_camion,
+        (SELECT GROUP_CONCAT(CONCAT(cam.marca, ' ', cam.modelo, ' [', cam.patente, ']') SEPARATOR ', ') FROM asignaciones a JOIN camiones cam ON a.id_camion = cam.id_camion WHERE a.id_chofer = c.id_chofer AND a.activa = 1) as vehiculos_nombres,
         (SELECT username FROM usuarios WHERE id_chofer = c.id_chofer LIMIT 1) as usuario_asociado_nombre,
         (SELECT id_usuario FROM usuarios WHERE id_chofer = c.id_chofer LIMIT 1) as usuario_asociado_id
         FROM choferes c LEFT JOIN empresas e ON c.empresa_id = e.id_empresa WHERE 1=1";
@@ -177,7 +178,7 @@ $usuariosDisponibles = $db->query("SELECT u.id_usuario, u.username, u.nombre, u.
 <td class="px-3 py-2 font-data-mono font-bold text-primary">#<?= htmlspecialchars($ch['id_chofer']) ?></td>
 <td class="px-3 py-2 truncate" title="<?= htmlspecialchars($ch['apellido'] . ' ' . $ch['nombre']) ?>">
 <?= htmlspecialchars($ch['apellido']) ?>, <?= htmlspecialchars($ch['nombre']) ?>
-<?php if ($ch['tiene_camion']): ?><span class="ml-1 text-green-600 material-symbols-outlined text-sm align-text-bottom" title="Tiene vehiculo asignado">local_shipping</span><?php endif; ?>
+<?php if ($ch['tiene_camion']): ?><span class="ml-1 text-green-600 material-symbols-outlined text-sm align-text-bottom" title="Vehículos asignados: <?= htmlspecialchars($ch['vehiculos_nombres'] ?? '') ?>">local_shipping</span><?php endif; ?>
 </td>
 <td class="px-3 py-2 font-data-mono"><?= htmlspecialchars($ch['dni']) ?></td>
 <td class="px-3 py-2 truncate"><?= htmlspecialchars($ch['licencia'] ?? '-') ?></td>

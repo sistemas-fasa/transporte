@@ -1,4 +1,5 @@
 <?php
+ob_start();
 require_once __DIR__ . '/../includes/auth.php';
 requireAdmin();
 requirePermission('vehiculos_ver');
@@ -10,10 +11,40 @@ $db = getDB();
 $mensaje = '';
 $error = '';
 
-// Asegurar que las columnas existan por si no corrió la sincronización
-foreach (['vtv DATE NULL', 'tara DECIMAL(10,2) NULL', 'proximo_mantenimiento_km DECIMAL(12,2) NULL', 'proximo_mantenimiento_hs DECIMAL(10,2) NULL', "tipo VARCHAR(50) DEFAULT 'camion'", "foto VARCHAR(255) NULL", "empresa_id INT DEFAULT NULL", "por_hora TINYINT(1) DEFAULT 0"] as $col) {
-    try { $db->exec("ALTER TABLE camiones ADD COLUMN $col"); } catch (Exception $e) {}
+if (isset($_GET['ok'])) {
+    if ($_GET['ok'] === 'foto_updated') $mensaje = 'Foto actualizada exitosamente.';
+    elseif ($_GET['ok'] === 'foto_deleted') $mensaje = 'Foto eliminada.';
+    elseif ($_GET['ok'] === 'foto_rotated') $mensaje = 'Foto rotada correctamente.';
+    elseif ($_GET['ok'] === 'created') $mensaje = 'Vehiculo creado exitosamente.';
+    elseif ($_GET['ok'] === 'updated') $mensaje = 'Vehiculo actualizado exitosamente.';
+    elseif ($_GET['ok'] === 'deleted') $mensaje = 'Vehiculo eliminado.';
+    elseif ($_GET['ok'] === 'checklist_toggled') $mensaje = 'Estado de checklist actualizado para el vehículo.';
 }
+
+// Asegurar que las columnas existan por si no corrió la sincronización
+$colsNecesarios = [
+    'vtv' => 'vtv DATE NULL',
+    'tara' => 'tara DECIMAL(10,2) NULL',
+    'proximo_mantenimiento_km' => 'proximo_mantenimiento_km DECIMAL(12,2) NULL',
+    'proximo_mantenimiento_hs' => 'proximo_mantenimiento_hs DECIMAL(10,2) NULL',
+    'proximo_mantenimiento_fecha' => 'proximo_mantenimiento_fecha DATE NULL',
+    'tipo' => "tipo VARCHAR(50) DEFAULT 'camion'",
+    'foto' => 'foto VARCHAR(255) NULL',
+    'empresa_id' => 'empresa_id INT DEFAULT NULL',
+    'por_hora' => 'por_hora TINYINT(1) DEFAULT 0',
+    'control_neumaticos' => 'control_neumaticos TINYINT(1) NOT NULL DEFAULT 0',
+    'hace_checklist' => 'hace_checklist TINYINT(1) NOT NULL DEFAULT 0',
+];
+try {
+    $existentes = [];
+    $r = $db->query("SHOW COLUMNS FROM camiones");
+    while ($row = $r->fetch()) { $existentes[] = $row['Field']; }
+    foreach ($colsNecesarios as $nombre => $def) {
+        if (!in_array($nombre, $existentes)) {
+            $db->exec("ALTER TABLE camiones ADD COLUMN $def");
+        }
+    }
+} catch (Exception $e) { error_log("Error sync columns camiones: " . $e->getMessage()); }
 
 // Upload photo
 if (isset($_FILES['foto']) && $_FILES['foto']['error'] === UPLOAD_ERR_OK) {
@@ -22,9 +53,59 @@ if (isset($_FILES['foto']) && $_FILES['foto']['error'] === UPLOAD_ERR_OK) {
         $ext = strtolower(pathinfo($_FILES['foto']['name'], PATHINFO_EXTENSION));
         $allowed = ['jpg','jpeg','png','gif','webp','bmp'];
         if (in_array($ext, $allowed)) {
-            $filename = 'vehiculo_' . $idCamion . '_' . time() . '.' . $ext;
+            // Siempre guardamos como webp para máxima compresión
+            $filename = 'vehiculo_' . $idCamion . '_' . time() . '.webp';
             $destino = __DIR__ . '/../assets/uploads/vehiculos/' . $filename;
-            if (move_uploaded_file($_FILES['foto']['tmp_name'], $destino)) {
+            
+            $tmp_name = $_FILES['foto']['tmp_name'];
+            $info = @getimagesize($tmp_name);
+            $uploaded = false;
+            
+            if ($info && in_array($info['mime'], ['image/jpeg', 'image/png', 'image/webp'])) {
+                if ($info['mime'] == 'image/jpeg') $img = @imagecreatefromjpeg($tmp_name);
+                elseif ($info['mime'] == 'image/png') $img = @imagecreatefrompng($tmp_name);
+                else $img = @imagecreatefromwebp($tmp_name);
+                
+                if ($img) {
+                    // Corregir rotación EXIF para fotos de celulares (solo aplicable a JPEGs/TIFFs)
+                    if ($info['mime'] == 'image/jpeg' && function_exists('exif_read_data')) {
+                        $exif = @exif_read_data($tmp_name);
+                        if ($exif && isset($exif['Orientation'])) {
+                            switch ($exif['Orientation']) {
+                                case 3: $img = imagerotate($img, 180, 0); break;
+                                case 6: $img = imagerotate($img, -90, 0); break;
+                                case 8: $img = imagerotate($img, 90, 0); break;
+                            }
+                        }
+                    }
+
+                    $ancho = imagesx($img);
+                    $alto = imagesy($img);
+                    $maxAncho = 800;
+                    
+                    if ($ancho > $maxAncho) {
+                        $nuevoAlto = floor($alto * ($maxAncho / $ancho));
+                        $nuevaImg = imagecreatetruecolor($maxAncho, $nuevoAlto);
+                        imagealphablending($nuevaImg, false);
+                        imagesavealpha($nuevaImg, true);
+                        imagecopyresampled($nuevaImg, $img, 0, 0, 0, 0, $maxAncho, $nuevoAlto, $ancho, $alto);
+                        imagedestroy($img);
+                        $img = $nuevaImg;
+                    }
+                    $uploaded = imagewebp($img, $destino, 70); // 70% quality
+                    imagedestroy($img);
+                }
+            }
+            
+            // Fallback si no se pudo comprimir
+            if (!$uploaded) {
+                // Keep original extension
+                $filename = 'vehiculo_' . $idCamion . '_' . time() . '.' . $ext;
+                $destino = __DIR__ . '/../assets/uploads/vehiculos/' . $filename;
+                $uploaded = move_uploaded_file($tmp_name, $destino);
+            }
+
+            if ($uploaded) {
                 // Borrar foto anterior
                 $old = $db->prepare("SELECT foto FROM camiones WHERE id_camion = ?");
                 $old->execute([$idCamion]);
@@ -33,7 +114,8 @@ if (isset($_FILES['foto']) && $_FILES['foto']['error'] === UPLOAD_ERR_OK) {
                     unlink(__DIR__ . '/../assets/uploads/vehiculos/' . $oldFoto);
                 }
                 $db->prepare("UPDATE camiones SET foto = ? WHERE id_camion = ?")->execute([$filename, $idCamion]);
-                $mensaje = 'Foto actualizada';
+                header('Location: ' . BASE_URL . '/admin/camiones.php?ok=foto_updated');
+                exit;
             } else {
                 $error = 'Error al subir la foto';
             }
@@ -53,7 +135,47 @@ if (isset($_POST['action']) && $_POST['action'] === 'delete_foto') {
         unlink(__DIR__ . '/../assets/uploads/vehiculos/' . $foto);
     }
     $db->prepare("UPDATE camiones SET foto = NULL WHERE id_camion = ?")->execute([$id]);
-    $mensaje = 'Foto eliminada';
+    header('Location: ' . BASE_URL . '/admin/camiones.php?ok=foto_deleted');
+    exit;
+}
+
+// Rotate photo
+if (isset($_POST['action']) && $_POST['action'] === 'rotate_foto') {
+    $id = (int)($_POST['id_camion'] ?? 0);
+    $stmt = $db->prepare("SELECT foto FROM camiones WHERE id_camion = ?");
+    $stmt->execute([$id]);
+    $foto = $stmt->fetchColumn();
+    if ($foto) {
+        $filePath = __DIR__ . '/../assets/uploads/vehiculos/' . $foto;
+        if (file_exists($filePath)) {
+            $ext = strtolower(pathinfo($foto, PATHINFO_EXTENSION));
+            $info = @getimagesize($filePath);
+            if ($info && in_array($info['mime'], ['image/jpeg', 'image/png', 'image/webp'])) {
+                if ($info['mime'] == 'image/jpeg') $img = @imagecreatefromjpeg($filePath);
+                elseif ($info['mime'] == 'image/png') $img = @imagecreatefrompng($filePath);
+                else $img = @imagecreatefromwebp($filePath);
+
+                if ($img) {
+                    $transparent = imagecolorallocatealpha($img, 0, 0, 0, 127);
+                    $imgRotated = imagerotate($img, -90, $transparent);
+                    imagealphablending($imgRotated, false);
+                    imagesavealpha($imgRotated, true);
+
+                    if ($ext == 'jpg' || $ext == 'jpeg') {
+                        imagejpeg($imgRotated, $filePath, 90);
+                    } elseif ($ext == 'png') {
+                        imagepng($imgRotated, $filePath, 3);
+                    } else {
+                        imagewebp($imgRotated, $filePath, 80);
+                    }
+                    imagedestroy($img);
+                    imagedestroy($imgRotated);
+                    header('Location: ' . BASE_URL . '/admin/camiones.php?ok=foto_rotated');
+                    exit;
+                }
+            }
+        }
+    }
 }
 
 // CRUD operations
@@ -71,38 +193,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tara = !empty($_POST['tara']) ? (float)$_POST['tara'] : null;
         $proxKm = !empty($_POST['proximo_mantenimiento_km']) ? (float)$_POST['proximo_mantenimiento_km'] : null;
         $proxHs = !empty($_POST['proximo_mantenimiento_hs']) ? (float)$_POST['proximo_mantenimiento_hs'] : null;
+        $proxFecha = !empty($_POST['proximo_mantenimiento_fecha']) ? $_POST['proximo_mantenimiento_fecha'] : null;
         $estado = $_POST['estado'] ?? 'activo';
         $tipo = $_POST['tipo'] ?? 'camion';
         $empresa_id = !empty($_POST['empresa_id']) ? (int)$_POST['empresa_id'] : null;
         $por_hora = isset($_POST['por_hora']) ? 1 : 0;
+        $control_neumaticos = isset($_POST['control_neumaticos']) ? 1 : 0;
+        $hace_checklist = isset($_POST['hace_checklist']) ? 1 : 0;
         $horas_actuales = !empty($_POST['horas_actuales']) ? (float)$_POST['horas_actuales'] : 0;
 
         if ($action === 'create') {
             try {
-                $stmt = $db->prepare("INSERT INTO camiones (patente, marca, modelo, anio, kilometraje_actual, horas_actuales, capacidad_tanque, vtv, tara, proximo_mantenimiento_km, proximo_mantenimiento_hs, estado, tipo, empresa_id, por_hora) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $horas_actuales, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $por_hora]);
+                $stmt = $db->prepare("INSERT INTO camiones (patente, marca, modelo, anio, kilometraje_actual, horas_actuales, capacidad_tanque, vtv, tara, proximo_mantenimiento_km, proximo_mantenimiento_hs, proximo_mantenimiento_fecha, estado, tipo, empresa_id, por_hora, control_neumaticos, hace_checklist) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $horas_actuales, $capacidad, $vtv, $tara, $proxKm, $proxHs, $proxFecha, $estado, $tipo, $empresa_id, $por_hora, $control_neumaticos, $hace_checklist]);
                 $idCamion = $db->lastInsertId();
                 if ($vtv) {
                     $db->prepare("UPDATE alertas SET resuelta = 1 WHERE tipo = 'vencimiento_vtv' AND id_referencia = ? AND resuelta = 0")->execute([$idCamion]);
                 }
                 registrarAuditoria(getCurrentUserId(), 'create', 'camiones', $idCamion, "Creo vehiculo $patente");
-                $mensaje = 'Vehiculo creado exitosamente';
+                header('Location: ' . BASE_URL . '/admin/camiones.php?ok=created#camion-' . $idCamion);
+                exit;
             } catch (Exception $e) {
                 $error = 'Error: ' . $e->getMessage();
             }
         } else {
             $id = (int)($_POST['id_camion'] ?? 0);
             try {
-                $stmt = $db->prepare("UPDATE camiones SET patente=?, marca=?, modelo=?, anio=?, kilometraje_actual=?, horas_actuales=?, capacidad_tanque=?, vtv=?, tara=?, proximo_mantenimiento_km=?, proximo_mantenimiento_hs=?, estado=?, tipo=?, empresa_id=?, por_hora=? WHERE id_camion=?");
-                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $horas_actuales, $capacidad, $vtv, $tara, $proxKm, $proxHs, $estado, $tipo, $empresa_id, $por_hora, $id]);
+                $stmt = $db->prepare("UPDATE camiones SET patente=?, marca=?, modelo=?, anio=?, kilometraje_actual=?, horas_actuales=?, capacidad_tanque=?, vtv=?, tara=?, proximo_mantenimiento_km=?, proximo_mantenimiento_hs=?, proximo_mantenimiento_fecha=?, estado=?, tipo=?, empresa_id=?, por_hora=?, control_neumaticos=?, hace_checklist=? WHERE id_camion=?");
+                $stmt->execute([$patente, $marca, $modelo, $anio, $kilometraje, $horas_actuales, $capacidad, $vtv, $tara, $proxKm, $proxHs, $proxFecha, $estado, $tipo, $empresa_id, $por_hora, $control_neumaticos, $hace_checklist, $id]);
                 if ($vtv) {
                     $db->prepare("UPDATE alertas SET resuelta = 1 WHERE tipo = 'vencimiento_vtv' AND id_referencia = ? AND resuelta = 0")->execute([$id]);
                 }
                 registrarAuditoria(getCurrentUserId(), 'update', 'camiones', $id, "Actualizo vehiculo $patente");
-                $mensaje = 'Vehiculo actualizado exitosamente';
+                header('Location: ' . BASE_URL . '/admin/camiones.php?ok=updated#camion-' . $id);
+                exit;
             } catch (Exception $e) {
                 $error = 'Error: ' . $e->getMessage();
             }
+        }
+    } elseif ($action === 'toggle_checklist') {
+        $id = (int)($_POST['id_camion'] ?? 0);
+        try {
+            $stmt = $db->prepare("UPDATE camiones SET hace_checklist = IF(COALESCE(hace_checklist, 0) = 1, 0, 1) WHERE id_camion = ?");
+            $stmt->execute([$id]);
+            registrarAuditoria(getCurrentUserId(), 'update', 'camiones', $id, "Cambio estado de checklist vehiculo ID $id");
+            header('Location: ' . BASE_URL . '/admin/camiones.php?ok=checklist_toggled#camion-' . $id);
+            exit;
+        } catch (Exception $e) {
+            $error = 'Error al actualizar checklist: ' . $e->getMessage();
         }
     } elseif ($action === 'delete') {
         $id = (int)($_POST['id_camion'] ?? 0);
@@ -117,7 +255,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $db->prepare("DELETE FROM camiones WHERE id_camion = ?");
             $stmt->execute([$id]);
             registrarAuditoria(getCurrentUserId(), 'delete', 'camiones', $id, "Elimino camion ID $id");
-            $mensaje = 'Vehiculo eliminado';
+            header('Location: ' . BASE_URL . '/admin/camiones.php?ok=deleted');
+            exit;
         } catch (Exception $e) {
             $error = 'No se puede eliminar el vehiculo, tiene registros asociados';
         }
@@ -128,7 +267,7 @@ $buscar = $_GET['buscar'] ?? '';
 $filtro_estado = $_GET['estado'] ?? '';
 
 $sql = "SELECT c.*, e.nombre as empresa_nombre, (SELECT COUNT(*) FROM asignaciones WHERE id_camion = c.id_camion AND activa = 1) as asignado,
-    (SELECT GROUP_CONCAT(CONCAT(ch.apellido, ', ', ch.nombre) SEPARATOR ' | ') FROM asignaciones a JOIN choferes ch ON a.id_chofer = ch.id_chofer WHERE a.id_camion = c.id_camion AND a.activa = 1) as choferes_asignados
+    (SELECT GROUP_CONCAT(CONCAT(ch.id_chofer, ':', ch.apellido, ', ', ch.nombre) SEPARATOR '|') FROM asignaciones a JOIN choferes ch ON a.id_chofer = ch.id_chofer WHERE a.id_camion = c.id_camion AND a.activa = 1) as choferes_asignados
     FROM camiones c LEFT JOIN empresas e ON c.empresa_id = e.id_empresa WHERE 1=1";
 $params = [];
 if ($buscar) {
@@ -166,12 +305,30 @@ $empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo
 <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
 <input id="searchInput" onkeyup="filterTable()" class="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary" placeholder="Buscar por patente, marca, modelo o chofer..." type="text"/>
 </div>
-<div class="flex items-center gap-2 w-full md:w-auto">
+<div class="flex flex-col md:flex-row items-center gap-2 w-full md:w-auto">
+<select id="tipoFilter" onchange="filterTable()" class="flex-1 md:w-48 px-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary">
+<option value="">Todos los Tipos</option>
+<option value="camion">Camión</option>
+<option value="semi">Semi</option>
+<option value="camioneta">Camioneta</option>
+<option value="tanque_cisterna">Tanque / Cisterna</option>
+<option value="auto">Auto</option>
+<option value="autoelevador">Autoelevador</option>
+<option value="maquina">Máquina</option>
+<option value="grua_prensa">Grúa/Prensa</option>
+<option value="moto">Moto</option>
+<option value="cachape">Cachapé</option>
+</select>
 <select id="estadoFilter" onchange="filterTable()" class="flex-1 md:w-48 px-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary">
 <option value="">Todos los Estados</option>
 <option value="activo">Activo</option>
 <option value="mantenimiento">En Mantenimiento</option>
 <option value="fuera_de_servicio">Fuera de Servicio</option>
+</select>
+<select id="checklistFilter" onchange="filterTable()" class="flex-1 md:w-48 px-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary">
+<option value="">Checklist (Todos)</option>
+<option value="1">Con Checklist</option>
+<option value="0">Sin Checklist</option>
 </select>
 </div>
 </div>
@@ -197,7 +354,7 @@ if ($vtvDate) {
     $vtvColor = 'gray'; $vtvLabel = 'SIN VTV';
 }
 ?>
-<div class="camion-card bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden hover:border-primary transition-all" data-search="<?= strtolower(htmlspecialchars($camion['patente'] . ' ' . $camion['marca'] . ' ' . $camion['modelo'] . ' ' . ($tipoLabels[$camion['tipo'] ?? 'camion'] ?? '') . ' ' . ($camion['choferes_asignados'] ?? ''))) ?>" data-estado="<?= $camion['estado'] ?>">
+<div id="camion-<?= $camion['id_camion'] ?>" class="camion-card bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden hover:border-primary transition-all" data-search="<?= strtolower(htmlspecialchars($camion['patente'] . ' ' . $camion['marca'] . ' ' . $camion['modelo'] . ' ' . ($tipoLabels[$camion['tipo'] ?? 'camion'] ?? '') . ' ' . ($camion['choferes_asignados'] ?? ''))) ?>" data-estado="<?= $camion['estado'] ?>" data-tipo="<?= htmlspecialchars($camion['tipo'] ?? 'camion') ?>" data-checklist="<?= !empty($camion['hace_checklist']) ? '1' : '0' ?>">
 <?php
 $tipoIconos = [
     'camion' => 'local_shipping',
@@ -236,16 +393,23 @@ $tipoLabel = $tipoLabels[$tipo] ?? $tipo;
 <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
 <form method="POST" enctype="multipart/form-data" id="fotoForm_<?= $camion['id_camion'] ?>" class="inline">
 <input type="hidden" name="id_camion_foto" value="<?= $camion['id_camion'] ?>"/>
-<label class="cursor-pointer bg-white/90 hover:bg-white text-primary rounded-full w-10 h-10 flex items-center justify-center shadow-lg transition-all hover:scale-110" for="fotoInput_<?= $camion['id_camion'] ?>">
+<label class="cursor-pointer bg-white/90 hover:bg-white text-primary rounded-full w-10 h-10 flex items-center justify-center shadow-lg transition-all hover:scale-110" for="fotoInput_<?= $camion['id_camion'] ?>" title="Cambiar foto">
 <span class="material-symbols-outlined text-lg">camera_alt</span>
 </label>
 <input type="file" name="foto" id="fotoInput_<?= $camion['id_camion'] ?>" accept="image/*" class="hidden" onchange="document.getElementById('fotoForm_<?= $camion['id_camion'] ?>').submit()"/>
 </form>
 <?php if (!empty($camion['foto'])): ?>
+<form method="POST" class="inline">
+<input type="hidden" name="action" value="rotate_foto"/>
+<input type="hidden" name="id_camion" value="<?= $camion['id_camion'] ?>"/>
+<button type="submit" class="bg-white/90 hover:bg-white text-blue-500 rounded-full w-10 h-10 flex items-center justify-center shadow-lg transition-all hover:scale-110" title="Girar foto 90°">
+<span class="material-symbols-outlined text-lg">rotate_right</span>
+</button>
+</form>
 <form method="POST" class="inline" onsubmit="return confirm('Eliminar foto?')">
 <input type="hidden" name="action" value="delete_foto"/>
 <input type="hidden" name="id_camion" value="<?= $camion['id_camion'] ?>"/>
-<button type="submit" class="bg-white/90 hover:bg-white text-red-500 rounded-full w-10 h-10 flex items-center justify-center shadow-lg transition-all hover:scale-110">
+<button type="submit" class="bg-white/90 hover:bg-white text-red-500 rounded-full w-10 h-10 flex items-center justify-center shadow-lg transition-all hover:scale-110" title="Eliminar foto">
 <span class="material-symbols-outlined text-lg">delete</span>
 </button>
 </form>
@@ -258,10 +422,34 @@ $tipoLabel = $tipoLabels[$tipo] ?? $tipo;
 <h3 class="font-headline-sm text-headline-sm text-primary"><?= htmlspecialchars($camion['marca']) ?> <?= htmlspecialchars($camion['modelo']) ?></h3>
 <p class="font-body-md text-on-surface-variant">Patente: <span class="font-bold text-primary"><?= htmlspecialchars($camion['patente']) ?></span></p>
 <?php if ($camion['empresa_nombre']): ?><p class="text-xs text-on-surface-variant mt-1"><span class="material-symbols-outlined text-[14px] align-text-bottom">business</span> <?= htmlspecialchars($camion['empresa_nombre']) ?></p><?php endif; ?>
-<?php if ($camion['choferes_asignados']): ?><p class="text-xs text-on-surface-variant mt-1"><span class="material-symbols-outlined text-[14px] align-text-bottom">person</span> <?= htmlspecialchars($camion['choferes_asignados']) ?></p><?php endif; ?>
+<?php if ($camion['choferes_asignados']): ?>
+<div class="mt-2 flex flex-col gap-1">
+<?php
+$asignados = explode('|', $camion['choferes_asignados']);
+foreach ($asignados as $asig):
+    $partes = explode(':', $asig, 2);
+    if (count($partes) === 2):
+        $id_ch = $partes[0];
+        $nombre_ch = $partes[1];
+?>
+<div class="text-xs text-on-surface-variant flex items-center justify-between bg-surface-container-low px-2 py-1 rounded">
+<span><span class="material-symbols-outlined text-[14px] align-text-bottom">person</span> <?= htmlspecialchars($nombre_ch) ?></span>
+<form method="POST" action="<?= BASE_URL ?>/admin/asignar_chofer.php" class="inline" onsubmit="return confirm('¿Desasignar este chofer del vehículo?')">
+<input type="hidden" name="action" value="desasignar"/>
+<input type="hidden" name="id_camion" value="<?= $camion['id_camion'] ?>"/>
+<input type="hidden" name="id_chofer" value="<?= htmlspecialchars($id_ch) ?>"/>
+<button type="submit" class="text-red-500 hover:text-red-700 font-bold text-[11px] hover:underline" title="Desasignar chofer">&times; Quitar</button>
+</form>
+</div>
+<?php endif; endforeach; ?>
+</div>
+<?php endif; ?>
 </div>
 <div class="flex flex-col items-end gap-1">
 <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase border border-<?= $est['color'] ?>-200 bg-<?= $est['color'] ?>-100 text-<?= $est['color'] ?>-800"><?= $est['text'] ?></span>
+<?php if ($camion['por_hora']): ?><span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-blue-100 text-blue-800 border border-blue-200">Horómetro</span><?php endif; ?>
+<?php if (!empty($camion['control_neumaticos'])): ?><span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-200">Neumáticos</span><?php endif; ?>
+<?php if (!empty($camion['hace_checklist'])): ?><span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">fact_check</span> Checklist</span><?php endif; ?>
 <span class="text-[10px] font-medium text-on-surface-variant"><?= $tipoLabel ?></span>
 </div>
 </div>
@@ -287,20 +475,34 @@ $tipoLabel = $tipoLabels[$tipo] ?? $tipo;
 <?php
 $proxKm = $camion['proximo_mantenimiento_km'] ?? null;
 $proxHs = $camion['proximo_mantenimiento_hs'] ?? null;
+$proxFecha = $camion['proximo_mantenimiento_fecha'] ?? null;
 $kmActual = $camion['kilometraje_actual'] ?? 0;
 $mantenimientoDue = false;
-$mantenimientoLabel = '';
-if ($proxKm && $kmActual >= $proxKm) { $mantenimientoDue = true; $mantenimientoLabel = 'VENCE KM'; }
-elseif ($proxKm) { $mantenimientoLabel = 'FALTAN ' . number_format($proxKm - $kmActual, 0) . ' KM'; }
+$mantenimientoLabel = [];
+
+if ($proxKm && $kmActual >= $proxKm) { $mantenimientoDue = true; $mantenimientoLabel[] = 'VENCE KM'; }
+elseif ($proxKm) { $mantenimientoLabel[] = 'FALTAN ' . number_format($proxKm - $kmActual, 0) . ' KM'; }
+
 if ($proxHs) {
-$mantenimientoLabel .= $mantenimientoLabel ? ' / ' : '';
-$mantenimientoLabel .= number_format($proxHs, 0) . ' HS';
+    $mantenimientoLabel[] = number_format($proxHs, 0) . ' HS';
 }
-if ($proxKm || $proxHs):
+
+if ($proxFecha) {
+    $diasRestantes = floor((strtotime($proxFecha) - time()) / 86400);
+    if ($diasRestantes <= 0) {
+        $mantenimientoDue = true;
+        $mantenimientoLabel[] = 'VENCE FECHA';
+    } else {
+        $mantenimientoLabel[] = 'FALTAN ' . $diasRestantes . ' DÍAS';
+    }
+}
+
+if (!empty($mantenimientoLabel)):
+    $mantenimientoLabelStr = implode(' / ', $mantenimientoLabel);
 ?>
 <div class="bg-<?= $mantenimientoDue ? 'red' : 'surface-container-low' ?> p-3 rounded-lg mb-4">
 <p class="text-[10px] font-label-caps text-on-surface-variant uppercase">Prox. Mantenimiento</p>
-<p class="font-data-mono text-<?= $mantenimientoDue ? 'red' : 'primary' ?>-600 text-sm font-bold"><?= $mantenimientoLabel ?></p>
+<p class="font-data-mono text-<?= $mantenimientoDue ? 'red' : 'primary' ?>-600 text-sm font-bold"><?= $mantenimientoLabelStr ?></p>
 </div>
 <?php endif; ?>
 <div class="flex flex-col gap-2">
@@ -320,6 +522,14 @@ Historial
 <span class="material-symbols-outlined text-sm">delete</span> Eliminar
 </button>
 </div>
+<form method="POST" class="w-full">
+<input type="hidden" name="action" value="toggle_checklist"/>
+<input type="hidden" name="id_camion" value="<?= $camion['id_camion'] ?>"/>
+<button type="submit" class="w-full py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 <?= !empty($camion['hace_checklist']) ? 'bg-purple-100 text-purple-900 hover:bg-purple-200 border border-purple-300' : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container border border-outline-variant' ?>" title="Activar o desactivar checklist diario">
+<span class="material-symbols-outlined text-[16px]"><?= !empty($camion['hace_checklist']) ? 'check_box' : 'check_box_outline_blank' ?></span>
+Checklist: <?= !empty($camion['hace_checklist']) ? 'Activo' : 'Inactivo' ?>
+</button>
+</form>
 </div>
 </div>
 </div>
@@ -381,14 +591,18 @@ Historial
     <input name="tara" type="number" step="0.01" id="camtara" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none"/>
 </div>
 </div>
-<div class="grid grid-cols-2 gap-4">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Prox. Mant. (KM)</label>
-<input name="proximo_mantenimiento_km" type="number" step="0.01" id="camproxkm" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none" placeholder="KM para el proximo servicio"/>
+<input name="proximo_mantenimiento_km" type="number" step="0.01" id="camproxkm" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none" placeholder="KM"/>
 </div>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Prox. Mant. (HS)</label>
-<input name="proximo_mantenimiento_hs" type="number" step="0.01" id="camproxhs" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none" placeholder="Horas para el proximo servicio"/>
+<input name="proximo_mantenimiento_hs" type="number" step="0.01" id="camproxhs" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none" placeholder="HS"/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Prox. Mant. (Fecha)</label>
+<input name="proximo_mantenimiento_fecha" type="date" id="camproxfecha" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none"/>
 </div>
 </div>
 <div class="flex flex-col gap-1">
@@ -427,6 +641,14 @@ Historial
 <input type="checkbox" name="por_hora" id="camporhora" value="1" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5 bg-surface-container-low"/>
 <label for="camporhora" class="font-label-caps text-label-caps text-on-surface-variant uppercase cursor-pointer">Control por Horas (Horómetro)</label>
 </div>
+<div class="flex items-center gap-2 pt-1">
+<input type="checkbox" name="control_neumaticos" id="camcontrolneumaticos" value="1" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5 bg-surface-container-low"/>
+<label for="camcontrolneumaticos" class="font-label-caps text-label-caps text-on-surface-variant uppercase cursor-pointer">Control de Neumáticos</label>
+</div>
+<div class="flex items-center gap-2 pt-1">
+<input type="checkbox" name="hace_checklist" id="camhacechecklist" value="1" class="rounded border-outline-variant text-primary focus:ring-primary h-5 w-5 bg-surface-container-low"/>
+<label for="camhacechecklist" class="font-label-caps text-label-caps text-on-surface-variant uppercase cursor-pointer">Realiza Checklist Diario</label>
+</div>
 <div class="flex gap-3 pt-4">
 <button type="button" onclick="closeModal('modalCamion')" class="flex-1 border border-outline text-primary py-2.5 rounded-xl font-bold hover:bg-surface-container-low transition-all">Cancelar</button>
 <button type="submit" class="btn-modern flex-1 bg-primary text-on-primary py-2.5 rounded-xl font-bold">Guardar</button>
@@ -446,8 +668,9 @@ Historial
 <input type="hidden" name="id_camion" id="asignarCamionId" value=""/>
 <div class="flex flex-col gap-1">
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Chofer</label>
-<select name="id_chofer" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none" required>
+<select name="id_chofer" class="input-modern w-full border border-outline-variant rounded-xl p-3 bg-surface-container-low focus:outline-none">
 <option value="">Seleccione un chofer...</option>
+<option value="0">-- Sin chofer (Desasignar vehículo) --</option>
 <?php $choferesActivos = $db->query("SELECT id_chofer, nombre, apellido, dni FROM choferes WHERE estado='activo' ORDER BY apellido")->fetchAll(); ?>
 <?php foreach ($choferesActivos as $ch): ?>
 <option value="<?= $ch['id_chofer'] ?>"><?= htmlspecialchars($ch['apellido'] . ', ' . $ch['nombre'] . ' - ' . $ch['dni']) ?></option>
@@ -496,10 +719,13 @@ document.getElementById('camvtv').value = data.vtv || '';
 document.getElementById('camtara').value = data.tara || '';
 document.getElementById('camproxkm').value = data.proximo_mantenimiento_km || '';
 document.getElementById('camproxhs').value = data.proximo_mantenimiento_hs || '';
+document.getElementById('camproxfecha').value = data.proximo_mantenimiento_fecha || '';
 document.getElementById('camtipo').value = data.tipo || 'camion';
 document.getElementById('camepresa').value = data.empresa_id || '';
 document.getElementById('camestado').value = data.estado;
 document.getElementById('camporhora').checked = parseInt(data.por_hora) === 1;
+document.getElementById('camcontrolneumaticos').checked = parseInt(data.control_neumaticos) === 1;
+document.getElementById('camhacechecklist').checked = parseInt(data.hace_checklist) === 1;
 updateCamionFields();
 document.getElementById('modalCamionTitle').textContent = 'Editar Vehiculo';
 openModal('modalCamion');
@@ -545,10 +771,13 @@ document.getElementById('camvtv').value = '';
 document.getElementById('camtara').value = '';
 document.getElementById('camproxkm').value = '';
 document.getElementById('camproxhs').value = '';
+document.getElementById('camproxfecha').value = '';
 document.getElementById('camtipo').value = 'camion';
 document.getElementById('camepresa').value = '';
 document.getElementById('camestado').value = 'activo';
 document.getElementById('camporhora').checked = false;
+document.getElementById('camcontrolneumaticos').checked = false;
+document.getElementById('camhacechecklist').checked = false;
 updateCamionFields();
 document.getElementById('modalCamionTitle').textContent = 'Nuevo Vehiculo';
 }
@@ -596,12 +825,21 @@ form.submit();
 function filterTable() {
     const search = document.getElementById('searchInput').value.toLowerCase();
     const estado = document.getElementById('estadoFilter').value;
+    const tipo = document.getElementById('tipoFilter').value;
+    const checklist = document.getElementById('checklistFilter') ? document.getElementById('checklistFilter').value : '';
     document.querySelectorAll('.camion-card').forEach(card => {
         const searchData = (card.dataset.search || '').toLowerCase();
         const matchSearch = searchData.includes(search);
         const matchEstado = !estado || card.dataset.estado === estado;
-        card.style.display = (matchSearch && matchEstado) ? '' : 'none';
+        const matchTipo = !tipo || card.dataset.tipo === tipo;
+        const matchChecklist = checklist === '' || card.dataset.checklist === checklist;
+        card.style.display = (matchSearch && matchEstado && matchTipo && matchChecklist) ? '' : 'none';
     });
+}
+
+if (window.location.hash) {
+    var el = document.querySelector(window.location.hash);
+    if (el) setTimeout(function() { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
 }
 
 

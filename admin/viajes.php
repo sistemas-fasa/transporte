@@ -174,6 +174,42 @@ $statsMes = $db->prepare("SELECT COUNT(*) as viajes, COALESCE(SUM(km_recorridos)
 $statsMes->execute([$mes, $anio]);
 $stats = $statsMes->fetch();
 
+// Total de horas del mes: incluye estimacion (si falta hs_llegada, se toma la hs_salida del siguiente viaje del mismo camion)
+$hsTotal = 0;
+try {
+    $stmtHs = $db->prepare("SELECT id_camion, id_hoja, fecha, hs_salida, hs_llegada, hs_recorridas FROM km_recorrido WHERE MONTH(fecha)=? AND YEAR(fecha)=? AND estado='aprobado' ORDER BY id_camion, fecha ASC, id_hoja ASC");
+    $stmtHs->execute([$mes, $anio]);
+    $tripsMes = $stmtHs->fetchAll();
+    $camsMes = array_unique(array_map('intval', array_column($tripsMes, 'id_camion')));
+    $siguienteHs = [];
+    if (!empty($camsMes)) {
+        $inCams = implode(',', $camsMes);
+        $stmtNx = $db->prepare("SELECT id_camion, id_hoja, fecha, hs_salida, hs_llegada FROM km_recorrido WHERE id_camion IN ($inCams) ORDER BY id_camion, fecha ASC, id_hoja ASC");
+        $stmtNx->execute();
+        $tripsCam = [];
+        foreach ($stmtNx->fetchAll() as $nx) { $tripsCam[$nx['id_camion']][] = $nx; }
+        foreach ($tripsCam as $trips) {
+            for ($i = 0; $i < count($trips) - 1; $i++) {
+                if ($trips[$i]['hs_salida'] !== null && $trips[$i]['hs_llegada'] === null
+                    && $trips[$i + 1]['hs_salida'] !== null
+                    && $trips[$i + 1]['hs_salida'] >= $trips[$i]['hs_salida']) {
+                    $siguienteHs[$trips[$i]['id_hoja']] = $trips[$i + 1]['hs_salida'];
+                }
+            }
+        }
+    }
+    foreach ($tripsMes as $t) {
+        if ($t['hs_salida'] !== null) {
+            if ($t['hs_llegada'] !== null) {
+                $hsTotal += (float)$t['hs_recorridas'];
+            } elseif (isset($siguienteHs[$t['id_hoja']])) {
+                $hsTotal += $siguienteHs[$t['id_hoja']] - $t['hs_salida'];
+            }
+        }
+    }
+} catch (Exception $e) {}
+$stats['hs_total'] = $hsTotal;
+
 $vista = $_GET['vista'] ?? 'todos';
 $buscar = $_GET['buscar'] ?? '';
 $fecha_desde = $_GET['fecha_desde'] ?? date('Y-m-01');
@@ -241,6 +277,81 @@ if ($vista === 'todos') {
     $sStmt = $db->prepare($sSql);
     $sStmt->execute($sParams);
     $statsChofer = $sStmt->fetch();
+
+    // Horas del chofer en el periodo (incluye estimacion con la hs_salida del siguiente viaje del mismo camion)
+    $statsChofer['hs_como_chofer'] = 0;
+    $statsChofer['hs_como_ayudante'] = 0;
+    $statsChofer['hs_total'] = 0;
+    try {
+        $qHs = "SELECT h.id_camion, h.id_hoja, h.id_chofer, h.ayudante_id, h.hs_salida, h.hs_llegada, h.hs_recorridas
+                FROM km_recorrido h
+                JOIN choferes ch ON h.id_chofer = ch.id_chofer
+                WHERE (h.id_chofer = ? OR h.ayudante_id = ?) AND h.estado='aprobado' AND h.fecha >= ? AND h.fecha <= ?
+                ORDER BY h.id_camion, h.fecha ASC, h.id_hoja ASC";
+        $pHs = [$id_chofer_filtro, $id_chofer_filtro, $fecha_desde, $fecha_hasta];
+        if ($id_empresa_filtro > 0) {
+            $qHs .= " AND ch.id_empresa = ?";
+            $pHs[] = $id_empresa_filtro;
+        }
+        $stmtHs = $db->prepare($qHs);
+        $stmtHs->execute($pHs);
+        $tripsHs = $stmtHs->fetchAll();
+        $camsHs = array_unique(array_map('intval', array_column($tripsHs, 'id_camion')));
+        $siguienteHsCh = [];
+        if (!empty($camsHs)) {
+            $inCamsHs = implode(',', $camsHs);
+            $stmtNxHs = $db->prepare("SELECT id_camion, id_hoja, fecha, hs_salida, hs_llegada FROM km_recorrido WHERE id_camion IN ($inCamsHs) ORDER BY id_camion, fecha ASC, id_hoja ASC");
+            $stmtNxHs->execute();
+            $tripsCamHs = [];
+            foreach ($stmtNxHs->fetchAll() as $nx) { $tripsCamHs[$nx['id_camion']][] = $nx; }
+            foreach ($tripsCamHs as $trips) {
+                for ($i = 0; $i < count($trips) - 1; $i++) {
+                    if ($trips[$i]['hs_salida'] !== null && $trips[$i]['hs_llegada'] === null
+                        && $trips[$i + 1]['hs_salida'] !== null
+                        && $trips[$i + 1]['hs_salida'] >= $trips[$i]['hs_salida']) {
+                        $siguienteHsCh[$trips[$i]['id_hoja']] = $trips[$i + 1]['hs_salida'];
+                    }
+                }
+            }
+        }
+        foreach ($tripsHs as $t) {
+            $hsT = null;
+            if ($t['hs_salida'] !== null) {
+                if ($t['hs_llegada'] !== null) {
+                    $hsT = $t['hs_recorridas'];
+                } elseif (isset($siguienteHsCh[$t['id_hoja']])) {
+                    $hsT = $siguienteHsCh[$t['id_hoja']] - $t['hs_salida'];
+                }
+            }
+            if ($hsT !== null && (float)$hsT > 0) {
+                $statsChofer['hs_total'] += $hsT;
+                if ((int)$t['id_chofer'] === $id_chofer_filtro) $statsChofer['hs_como_chofer'] += $hsT;
+                if ((int)$t['ayudante_id'] === $id_chofer_filtro) $statsChofer['hs_como_ayudante'] += $hsT;
+            }
+        }
+    } catch (Exception $e) {}
+}
+
+// Horas trabajadas: si el viaje no tiene hs_llegada, se toma la hs_salida del siguiente viaje del mismo camion
+$siguienteHsSalida = [];
+$cams = array_unique(array_map('intval', array_column($registrosList, 'id_camion')));
+if (!empty($cams)) {
+    $inCams = implode(',', $cams);
+    try {
+        $stmtNx = $db->prepare("SELECT id_camion, id_hoja, fecha, hs_salida, hs_llegada FROM km_recorrido WHERE id_camion IN ($inCams) ORDER BY id_camion, fecha ASC, id_hoja ASC");
+        $stmtNx->execute();
+        $tripsCam = [];
+        foreach ($stmtNx->fetchAll() as $nx) { $tripsCam[$nx['id_camion']][] = $nx; }
+        foreach ($tripsCam as $trips) {
+            for ($i = 0; $i < count($trips) - 1; $i++) {
+                if ($trips[$i]['hs_salida'] !== null && $trips[$i]['hs_llegada'] === null
+                    && $trips[$i + 1]['hs_salida'] !== null
+                    && $trips[$i + 1]['hs_salida'] >= $trips[$i]['hs_salida']) {
+                    $siguienteHsSalida[$trips[$i]['id_hoja']] = $trips[$i + 1]['hs_salida'];
+                }
+            }
+        }
+    } catch (Exception $e) {}
 }
 
 // Tabla localidad (origen/destino)
@@ -294,6 +405,10 @@ require_once __DIR__ . '/../includes/sidebar_admin.php';
 <div class="bg-surface-container-lowest border border-outline-variant p-4">
 <span class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM del Mes</span>
 <div class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($stats['km_total'], 0) ?> km</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant p-4">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS de Maq. del Mes</span>
+<div class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($stats['hs_total'], 1) ?> hs</div>
 </div>
 <div class="bg-surface-container-lowest border border-outline-variant p-4">
 <span class="font-label-caps text-label-caps text-on-surface-variant uppercase">Promedio x Viaje</span>
@@ -353,14 +468,35 @@ require_once __DIR__ . '/../includes/sidebar_admin.php';
 </tr>
 </thead>
 <tbody class="divide-y divide-outline-variant" id="tableBody">
-<?php foreach ($registrosList as $r): ?>
+<?php foreach ($registrosList as $r):
+$kmSal = (float)($r['km_salida'] ?? 0);
+$kmLle = $r['km_llegada'] ?? null;
+$hsSal = $r['hs_salida'] ?? null;
+$hsLle = $r['hs_llegada'] ?? null;
+if ($kmSal > 0) {
+    $kmCol = number_format($kmSal, 0) . '&rarr;' . ($kmLle !== null ? number_format($kmLle, 0) : '-');
+} elseif ($hsSal !== null) {
+    $kmCol = number_format($hsSal, 1) . '&rarr;' . ($hsLle !== null ? number_format($hsLle, 1) : '-');
+} else {
+    $kmCol = '-';
+}
+$hsRecEf = null;
+if ($hsSal !== null) {
+    if ($hsLle !== null) { $hsRecEf = $r['hs_recorridas']; }
+    elseif (isset($siguienteHsSalida[$r['id_hoja']])) { $hsRecEf = $siguienteHsSalida[$r['id_hoja']] - $hsSal; }
+}
+$kmRecCol = '';
+if ($r['km_recorridos'] !== null && (float)$r['km_recorridos'] > 0) $kmRecCol .= number_format($r['km_recorridos'], 0) . ' km';
+if ($hsRecEf !== null && (float)$hsRecEf > 0) $kmRecCol .= ($kmRecCol !== '' ? ' / ' : '') . number_format($hsRecEf, 1) . ' hs';
+if ($kmRecCol === '') $kmRecCol = '-';
+?>
 <tr class="hover:bg-surface-container transition-colors text-[12px]">
 <td class="px-2 py-2 font-data-mono whitespace-nowrap"><?= date('d/m/Y', strtotime($r['fecha'])) ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?>"><?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?></td>
 <td class="px-2 py-2"><span class="font-bold block whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?></span><?php if (!empty($r['cachape_patente'])): ?><span class="text-[9px] text-on-surface-variant font-normal block whitespace-nowrap">+<?= htmlspecialchars($r['cachape_patente']) ?></span><?php endif; ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['origen'] ?? '') . ' → ' . ($r['destino'] ?? '')) ?>"><?= htmlspecialchars(($r['origen'] ?? '-') . ' → ' . ($r['destino'] ?? '-')) ?></td>
-<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['por_hora'] ? (number_format($r['hs_salida'], 1) . '&rarr;' . ($r['hs_llegada'] !== null ? number_format($r['hs_llegada'], 1) : '-')) : (number_format($r['km_salida'], 0) . '&rarr;' . ($r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-')) ?></td>
-<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['por_hora'] ? ($r['hs_recorridas'] !== null ? number_format($r['hs_recorridas'], 1) . ' hs' : '-') : ($r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-') ?></td>
+<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $kmCol ?></td>
+<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $kmRecCol ?></td>
 <td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['tara'] !== null ? number_format($r['tara'], 0) : '' ?><?= $r['tara'] !== null && $r['peso_carga'] !== null ? '/' : '' ?><?= $r['peso_carga'] !== null ? number_format($r['peso_carga'], 0) : '' ?><?= $r['tara'] === null && $r['peso_carga'] === null ? '-' : '' ?></td>
 <td class="px-2 py-2 text-center whitespace-nowrap">
 <?php
@@ -472,6 +608,18 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <span class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Totales</span>
 <div class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($statsChofer['km_total'], 0) ?> km</div>
 </div>
+<div class="bg-surface-container-lowest border border-outline-variant p-4">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS como Chofer</span>
+<div class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($statsChofer['hs_como_chofer'], 1) ?> hs</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant p-4">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS como Ayudante</span>
+<div class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($statsChofer['hs_como_ayudante'], 1) ?> hs</div>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant p-4">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Totales</span>
+<div class="font-headline-md text-headline-md text-primary mt-1"><?= number_format($statsChofer['hs_total'], 1) ?> hs</div>
+</div>
 </div>
 <?php endif; ?>
 
@@ -500,6 +648,26 @@ $rolCls = $rol === 'Ayudante' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 tex
 if ($estado === 'aprobado') $bCls = 'bg-green-100 text-green-800';
 elseif ($estado === 'cerrado') $bCls = 'bg-blue-100 text-blue-800';
 else $bCls = 'bg-amber-100 text-amber-800';
+$kmSal = (float)($r['km_salida'] ?? 0);
+$kmLle = $r['km_llegada'] ?? null;
+$hsSal = $r['hs_salida'] ?? null;
+$hsLle = $r['hs_llegada'] ?? null;
+if ($kmSal > 0) {
+    $kmCol = number_format($kmSal, 0) . '&rarr;' . ($kmLle !== null ? number_format($kmLle, 0) : '-');
+} elseif ($hsSal !== null) {
+    $kmCol = number_format($hsSal, 1) . '&rarr;' . ($hsLle !== null ? number_format($hsLle, 1) : '-');
+} else {
+    $kmCol = '-';
+}
+$hsRecEf = null;
+if ($hsSal !== null) {
+    if ($hsLle !== null) { $hsRecEf = $r['hs_recorridas']; }
+    elseif (isset($siguienteHsSalida[$r['id_hoja']])) { $hsRecEf = $siguienteHsSalida[$r['id_hoja']] - $hsSal; }
+}
+$kmRecCol = '';
+if ($r['km_recorridos'] !== null && (float)$r['km_recorridos'] > 0) $kmRecCol .= number_format($r['km_recorridos'], 0) . ' km';
+if ($hsRecEf !== null && (float)$hsRecEf > 0) $kmRecCol .= ($kmRecCol !== '' ? ' / ' : '') . number_format($hsRecEf, 1) . ' hs';
+if ($kmRecCol === '') $kmRecCol = '-';
 ?>
 <tr class="hover:bg-surface-container transition-colors text-[12px]">
 <td class="px-2 py-2 font-data-mono whitespace-nowrap"><?= date('d/m/Y', strtotime($r['fecha'])) ?></td>
@@ -507,8 +675,8 @@ else $bCls = 'bg-amber-100 text-amber-800';
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?>"><?= htmlspecialchars(($r['apellido'] ?? '') . ', ' . ($r['nombre'] ?? '')) ?></td>
 <td class="px-2 py-2"><span class="font-bold block whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?></span><?php if (!empty($r['cachape_patente'])): ?><span class="text-[9px] text-on-surface-variant font-normal block whitespace-nowrap">+<?= htmlspecialchars($r['cachape_patente']) ?></span><?php endif; ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['origen'] ?? '') . ' → ' . ($r['destino'] ?? '')) ?>"><?= htmlspecialchars(($r['origen'] ?? '-') . ' → ' . ($r['destino'] ?? '-')) ?></td>
-<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['por_hora'] ? (number_format($r['hs_salida'], 1) . '&rarr;' . ($r['hs_llegada'] !== null ? number_format($r['hs_llegada'], 1) : '-')) : (number_format($r['km_salida'], 0) . '&rarr;' . ($r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-')) ?></td>
-<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['por_hora'] ? ($r['hs_recorridas'] !== null ? number_format($r['hs_recorridas'], 1) . ' hs' : '-') : ($r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-') ?></td>
+<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $kmCol ?></td>
+<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $kmRecCol ?></td>
 <td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['tara'] !== null ? number_format($r['tara'], 0) : '' ?><?= $r['tara'] !== null && $r['peso_carga'] !== null ? '/' : '' ?><?= $r['peso_carga'] !== null ? number_format($r['peso_carga'], 0) : '' ?><?= $r['tara'] === null && $r['peso_carga'] === null ? '-' : '' ?></td>
 <td class="px-2 py-2 text-center whitespace-nowrap">
 <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase <?= $bCls ?>"><?= $estado ?></span>
@@ -636,11 +804,11 @@ else $bCls = 'bg-amber-100 text-amber-800';
 </div>
 <div class="grid grid-cols-2 gap-4 hidden" id="hsFields">
 <div class="flex flex-col gap-1">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Salida (Horas)</label>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Hs Maquina Salida</label>
 <input name="hs_salida" id="viajeHsSalida" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
 </div>
 <div class="flex flex-col gap-1">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Llegada (Horas)</label>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Hs Maquina Llegada</label>
 <input name="hs_llegada" id="viajeHsLlegada" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
 </div>
 </div>
@@ -805,9 +973,12 @@ html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant u
 html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Camion</span><span class="font-bold">' + valor(data.patente) + ' ' + (data.marca || '') + ' ' + (data.modelo || '') + '</span></div>';
 html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Cachapé</span><span>' + (data.cachape_patente || '-') + '</span></div>';
 if (data.por_hora) {
-html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">HS Salida</span><span class="font-data-mono">' + siHay(data.hs_salida, 'hs') + '</span></div>';
-html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">HS Llegada</span><span class="font-data-mono">' + (data.hs_llegada !== null && data.hs_llegada !== undefined && data.hs_llegada !== '' ? Number(data.hs_llegada).toLocaleString('es-ES', {minimumFractionDigits:1,maximumFractionDigits:1}) + ' hs' : '-') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Hs Maquina Salida</span><span class="font-data-mono">' + siHay(data.hs_salida, 'hs') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">Hs Maquina Llegada</span><span class="font-data-mono">' + (data.hs_llegada !== null && data.hs_llegada !== undefined && data.hs_llegada !== '' ? Number(data.hs_llegada).toLocaleString('es-ES', {minimumFractionDigits:1,maximumFractionDigits:1}) + ' hs' : '-') + '</span></div>';
 html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">HS Recorridas</span><span class="font-data-mono font-bold text-primary">' + siHay(data.hs_recorridas, 'hs') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">KM Salida</span><span class="font-data-mono">' + (data.km_salida !== null && data.km_salida !== undefined && data.km_salida !== '' ? Number(data.km_salida).toLocaleString('es-ES') + ' km' : '-') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">KM Llegada</span><span class="font-data-mono">' + (data.km_llegada !== null && data.km_llegada !== undefined && data.km_llegada !== '' ? Number(data.km_llegada).toLocaleString('es-ES') + ' km' : '-') + '</span></div>';
+html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">KM Recorridos</span><span class="font-data-mono font-bold text-primary">' + siHay(data.km_recorridos, 'km') + '</span></div>';
 } else {
 html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">KM Salida</span><span class="font-data-mono">' + siHay(data.km_salida, 'km') + '</span></div>';
 html += '<div><span class="font-label-caps text-[10px] text-on-surface-variant uppercase block">KM Llegada</span><span class="font-data-mono">' + (data.km_llegada !== null && data.km_llegada !== undefined && data.km_llegada !== '' ? Number(data.km_llegada).toLocaleString('es-ES') + ' km' : '-') + '</span></div>';

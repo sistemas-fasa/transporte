@@ -81,11 +81,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'No se pudo identificar el chofer asociado a su usuario. Contacte al administrador.';
     } else {
         try {
-            // Verificar si ya se registró una carga idéntica en los últimos 2 minutos para prevenir duplicados
-            $stmtDup = $db->prepare("SELECT id_combustible FROM combustible WHERE id_chofer = ? AND id_camion = ? AND ABS(litros - ?) < 0.001 AND fecha >= (NOW() - INTERVAL 2 MINUTE) LIMIT 1");
-            $stmtDup->execute([$idChofer, $id_camion, $litros]);
+            // Verificar si ya se registró una carga idéntica para prevenir duplicados
+            $km_cond = $km_carga !== null ? "AND (kilometraje_al_cargar = " . (float)$km_carga . ")" : "AND kilometraje_al_cargar IS NULL";
+            $hs_cond = $horas_carga !== null ? "AND (horas_al_cargar = " . (float)$horas_carga . ")" : "AND horas_al_cargar IS NULL";
+
+            $stmtDup = $db->prepare("SELECT id_combustible FROM combustible WHERE id_chofer = ? AND id_camion = ? AND ABS(litros - ?) < 0.001 AND estacion_servicio = ? $km_cond $hs_cond LIMIT 1");
+            $stmtDup->execute([$idChofer, $id_camion, $litros, $estacion]);
             if ($stmtDup->fetchColumn()) {
-                $error = 'Esta carga de combustible ya fue registrada hace unos momentos. Se evitó el registro duplicado.';
+                $error = 'Esta carga de combustible ya fue registrada. Se evitó el registro duplicado (mismos litros, estación y odómetro).';
             } else {
                 $uploadDir = __DIR__ . '/../assets/uploads/tickets/';
                 if (!is_dir($uploadDir)) {
@@ -308,8 +311,8 @@ if ($idChofer) {
                                 </div>
                                 <div class="text-xs font-bold mt-0.5">
                                     <?php
-                                        if ($c['error_consumo']) {
-                                            echo '<span class="text-amber-600 font-bold" title="' . htmlspecialchars($c['error_consumo']) . '">⚠️ Error</span>';
+if ($c['error_consumo']) {
+                                            echo '<span class="text-amber-600 font-bold" title="' . htmlspecialchars($c['error_consumo']) . '">⚠️ ' . htmlspecialchars($c['error_consumo']) . '</span>';
                                         } else {
                                             $parts = [];
                                             if ($c['km_recorridos'] !== null) $parts[] = '+' . number_format($c['km_recorridos'], 0) . ' KM';

@@ -7,6 +7,7 @@ ALTER TABLE usuarios
   ADD COLUMN nombre VARCHAR(100) AFTER username,
   ADD COLUMN apellido VARCHAR(100) AFTER nombre,
   ADD COLUMN telefono VARCHAR(30) AFTER email,
+  ADD COLUMN firma_digital VARCHAR(255) DEFAULT NULL AFTER activo,
   ADD COLUMN intentos_fallidos INT DEFAULT 0,
   ADD COLUMN bloqueado_hasta DATETIME DEFAULT NULL;
 
@@ -135,7 +136,7 @@ WHERE codigo NOT IN ('usuarios_crear', 'usuarios_editar', 'usuarios_eliminar', '
 -- Asignar permisos al Chofer (rol 3): solo lo básico
 INSERT IGNORE INTO rol_permiso (id_rol, id_permiso)
 SELECT 3, id_permiso FROM permisos
-WHERE codigo IN ('combustible_cargar', 'kilometraje_cargar', 'mantenimiento_crear');
+WHERE codigo IN ('combustible_cargar', 'kilometraje_cargar', 'mantenimiento_crear', 'vehiculos_eliminar');
 
 -- Migrar usuarios existentes al nuevo sistema de roles
 INSERT INTO usuario_rol (id_usuario, id_rol)

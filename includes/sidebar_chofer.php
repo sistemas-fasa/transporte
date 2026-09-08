@@ -28,6 +28,7 @@
 <?php
 $allNavItems = [
     ['label' => 'Mi Panel', 'icon' => 'dashboard', 'link' => '/chofer/panel.php', 'page' => 'panel.php', 'permiso' => null],
+    ['label' => 'Checklist Máquinas', 'icon' => 'fact_check', 'link' => '/chofer/checklist.php', 'page' => 'checklist.php', 'permiso' => null],
     ['label' => 'Cargar Combustible', 'icon' => 'local_gas_station', 'link' => '/chofer/cargar_combustible.php', 'page' => 'cargar_combustible.php', 'permiso' => 'combustible_cargar'],
     ['label' => 'Registrar Mantenimiento', 'icon' => 'build', 'link' => '/chofer/registrar_mantenimiento.php', 'page' => 'registrar_mantenimiento.php', 'permiso' => 'mantenimiento_crear'],
     ['label' => 'Mis Viajes', 'icon' => 'map', 'link' => '/chofer/viajes.php', 'page' => 'viajes.php', 'permiso' => 'kilometraje_cargar'],

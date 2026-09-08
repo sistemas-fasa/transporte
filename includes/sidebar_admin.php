@@ -34,9 +34,11 @@ $allNavItems = [
     ['label' => 'Viajes', 'icon' => 'alt_route', 'link' => '/admin/viajes.php', 'page' => 'viajes.php', 'permiso' => 'kilometraje_ver'],
     ['label' => 'Cargar Viajes', 'icon' => 'edit_note', 'link' => '/admin/cargar_viajes.php', 'page' => 'cargar_viajes.php', 'permiso' => 'kilometraje_cargar'],
     ['label' => 'Mantenimiento', 'icon' => 'build', 'link' => '/admin/mantenimiento.php', 'page' => 'mantenimiento.php', 'permiso' => 'mantenimiento_ver'],
+    ['label' => 'Banco Neumaticos', 'icon' => 'tire_repair', 'link' => '/admin/banco_neumaticos.php', 'page' => 'banco_neumaticos.php', 'permiso' => 'mantenimiento_ver'],
     ['label' => 'Alertas', 'icon' => 'notifications_active', 'link' => '/admin/alertas.php', 'page' => 'alertas.php', 'permiso' => 'alertas_ver'],
     ['label' => 'Empresas', 'icon' => 'business', 'link' => '/admin/empresas.php', 'page' => 'empresas.php', 'permiso' => 'empresas_ver'],
     ['label' => 'Matafuegos', 'icon' => 'local_fire_department', 'link' => '/admin/matafuegos.php', 'page' => 'matafuegos.php', 'permiso' => 'matafuegos_ver'],
+    ['label' => 'Checklist Máquinas', 'icon' => 'fact_check', 'link' => '/admin/checklist_maquinas.php', 'page' => 'checklist_maquinas.php', 'permiso' => 'checklist_ver'],
 ];
 
 $allNavItems[] = ['label' => 'Reportes', 'icon' => 'analytics', 'link' => '/admin/reportes.php', 'page' => 'reportes.php', 'permiso' => 'reportes_ver'];

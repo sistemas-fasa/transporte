@@ -11,6 +11,9 @@ ini_set('log_errors', 1);
 
 // Custom session usando cookies + DB
 function dbSessionStart() {
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
     if (!isset($_COOKIE['SISTEMA_TOKEN'])) {
         return false;
     }
@@ -59,6 +62,9 @@ function dbSessionStart() {
 }
 
 function dbSessionLogin($id_usuario, $rol, $username, $id_chofer = null) {
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
     $token = bin2hex(random_bytes(32));
     $expira = date('Y-m-d H:i:s', strtotime('+7 days'));
     try {
@@ -114,6 +120,9 @@ function dbSessionLogin($id_usuario, $rol, $username, $id_chofer = null) {
 }
 
 function dbSessionLogout() {
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
     if (isset($_COOKIE['SISTEMA_TOKEN'])) {
         try {
             $pdo = new PDO("mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4", DB_USER, DB_PASS);

@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS camiones (
     tipo VARCHAR(50) DEFAULT 'camion',
     estado ENUM('activo', 'mantenimiento', 'fuera_de_servicio') DEFAULT 'activo',
     por_hora TINYINT(1) DEFAULT 0,
+    control_neumaticos TINYINT(1) NOT NULL DEFAULT 0,
+    hace_checklist TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;

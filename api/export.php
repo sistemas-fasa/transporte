@@ -18,8 +18,14 @@ $buscar = $_GET['buscar'] ?? '';
 $orden = strtoupper($_GET['orden'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
 
 function isNumericHeader($h) {
-    $numeric = ['KM Salida', 'KM Llegada', 'KM Recorridos', 'HS Salida', 'HS Llegada', 'HS Recorridas', 'Litros', 'Precio Litro', 'Importe Total', 'Costo', 'Kilometraje', 'Cargas', 'Total Gastado', 'Prom. Km/L', 'Prom. L/100 Km', 'Prom. Costo/Km', 'Prom. L/Hs', 'Prom. Costo/Hs'];
+    $numeric = ['KM Salida', 'KM Llegada', 'KM Recorridos', 'Hs Maquina Salida', 'Hs Maquina Llegada', 'HS Recorridas', 'Litros', 'Precio Litro', 'Importe Total', 'Costo', 'Kilometraje', 'Cargas', 'Total Gastado', 'Prom. Km/L', 'Prom. L/100 Km', 'Prom. Costo/Km', 'Prom. L/Hs', 'Prom. Costo/Hs'];
     return in_array($h, $numeric);
+}
+
+function headerKey($h) {
+    $map = ['hs_maquina_salida' => 'hs_salida', 'hs_maquina_llegada' => 'hs_llegada'];
+    $key = strtolower(str_replace(' ', '_', $h));
+    return $map[$key] ?? $key;
 }
 
 function generarHTML($data, $headers, $title, $totales = null) {
@@ -49,7 +55,7 @@ function generarHTML($data, $headers, $title, $totales = null) {
     foreach ($data as $row) {
         $html .= '<tr>';
         foreach ($headers as $h) {
-            $key = strtolower(str_replace(' ', '_', $h));
+            $key = headerKey($h);
             $cls = isNumericHeader($h) ? ' class="right"' : '';
             $html .= '<td' . $cls . '>' . htmlspecialchars($row[$key] ?? '') . '</td>';
         }
@@ -59,7 +65,7 @@ function generarHTML($data, $headers, $title, $totales = null) {
     if ($totales) {
         $html .= '<tfoot><tr>';
         foreach ($headers as $h) {
-            $key = strtolower(str_replace(' ', '_', $h));
+            $key = headerKey($h);
             $cls = isNumericHeader($h) ? ' class="right"' : '';
             if ($key === 'fecha') {
                 $html .= '<td class="right" colspan="1"><strong>TOTALES</strong></td>';
@@ -130,7 +136,7 @@ function generarExcel($data, $headers, $title, $totales = null) {
     foreach ($data as $row) {
         $rowsXml .= '<row r="' . $r . '">';
         foreach ($headers as $ci => $h) {
-            $key = strtolower(str_replace(' ', '_', $h));
+            $key = headerKey($h);
             $val = $row[$key] ?? '';
             $isNum = is_numeric($val) && $val !== '';
             if ($isNum) {
@@ -145,7 +151,7 @@ function generarExcel($data, $headers, $title, $totales = null) {
     if ($totales) {
         $rowsXml .= '<row r="' . $r . '">';
         foreach ($headers as $ci => $h) {
-            $key = strtolower(str_replace(' ', '_', $h));
+            $key = headerKey($h);
             if ($key === 'fecha') {
                 $rowsXml .= '<c r="' . $colLetters[$ci] . $r . '" t="s" s="3"><v>' . addString($sharedStrings, $ssIndex, 'TOTALES') . '</v></c>';
             } elseif (isset($totales[$key])) {
@@ -369,7 +375,7 @@ switch ($tipo) {
 
     case 'viajes':
         if ($vista === 'por_chofer' && (int)$id_chofer > 0) {
-            $sql = "SELECT h.fecha as fecha, CONCAT(ch.apellido,', ',ch.nombre) as chofer, c.patente as patente, h.origen as origen, h.destino as destino, h.km_salida, h.km_llegada, h.km_recorridos, h.hs_salida, h.hs_llegada, h.hs_recorridas, c.por_hora, h.estado as estado, h.nro_hoja_ruta as nro_hoja_ruta, CASE WHEN h.id_chofer = ? THEN 'Chofer' ELSE 'Ayudante' END as rol FROM km_recorrido h JOIN camiones c ON h.id_camion = c.id_camion JOIN choferes ch ON h.id_chofer = ch.id_chofer WHERE (h.id_chofer = ? OR h.ayudante_id = ?) AND h.fecha >= ? AND h.fecha <= ?";
+            $sql = "SELECT h.id_camion, h.id_hoja, h.fecha as fecha, CONCAT(ch.apellido,', ',ch.nombre) as chofer, c.patente as patente, h.origen as origen, h.destino as destino, h.km_salida, h.km_llegada, h.km_recorridos, h.hs_salida, h.hs_llegada, h.hs_recorridas, c.por_hora, h.estado as estado, h.nro_hoja_ruta as nro_hoja_ruta, CASE WHEN h.id_chofer = ? THEN 'Chofer' ELSE 'Ayudante' END as rol FROM km_recorrido h JOIN camiones c ON h.id_camion = c.id_camion JOIN choferes ch ON h.id_chofer = ch.id_chofer WHERE (h.id_chofer = ? OR h.ayudante_id = ?) AND h.fecha >= ? AND h.fecha <= ?";
             $params = [(int)$id_chofer, (int)$id_chofer, (int)$id_chofer, $desde, $hasta];
             if ($id_empresa) {
                 $sql .= " AND ch.id_empresa = ?";
@@ -377,7 +383,7 @@ switch ($tipo) {
             }
             $sql .= " ORDER BY h.fecha $orden, h.id_hoja $orden";
         } else {
-            $sql = "SELECT h.fecha as fecha, CONCAT(ch.apellido,', ',ch.nombre) as chofer, c.patente as patente, h.origen as origen, h.destino as destino, h.km_salida, h.km_llegada, h.km_recorridos, h.hs_salida, h.hs_llegada, h.hs_recorridas, c.por_hora, h.estado as estado, h.nro_hoja_ruta as nro_hoja_ruta, 'Chofer' as rol FROM km_recorrido h JOIN camiones c ON h.id_camion = c.id_camion JOIN choferes ch ON h.id_chofer = ch.id_chofer WHERE 1=1";
+            $sql = "SELECT h.id_camion, h.id_hoja, h.fecha as fecha, CONCAT(ch.apellido,', ',ch.nombre) as chofer, c.patente as patente, h.origen as origen, h.destino as destino, h.km_salida, h.km_llegada, h.km_recorridos, h.hs_salida, h.hs_llegada, h.hs_recorridas, c.por_hora, h.estado as estado, h.nro_hoja_ruta as nro_hoja_ruta, 'Chofer' as rol FROM km_recorrido h JOIN camiones c ON h.id_camion = c.id_camion JOIN choferes ch ON h.id_chofer = ch.id_chofer WHERE 1=1";
             $params = [];
             if ($buscar) {
                 $sql .= " AND (c.patente LIKE ? OR ch.nombre LIKE ? OR ch.apellido LIKE ? OR h.origen LIKE ? OR h.destino LIKE ?)";
@@ -390,43 +396,71 @@ switch ($tipo) {
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
         $data = $stmt->fetchAll();
-        $total_km = 0; $total_hs = 0; $has_km = false; $has_hs = false;
+
+        // Horas trabajadas: si el viaje no tiene hs_llegada, se toma la hs_salida del siguiente viaje del mismo camion
+        $siguienteHsSalida = [];
+        $cams = array_unique(array_map('intval', array_column($data, 'id_camion')));
+        if (!empty($cams)) {
+            $inCams = implode(',', $cams);
+            try {
+                $stmtNx = $db->prepare("SELECT id_camion, id_hoja, fecha, hs_salida, hs_llegada FROM km_recorrido WHERE id_camion IN ($inCams) ORDER BY id_camion, fecha ASC, id_hoja ASC");
+                $stmtNx->execute();
+                $tripsCam = [];
+                foreach ($stmtNx->fetchAll() as $nx) { $tripsCam[$nx['id_camion']][] = $nx; }
+                foreach ($tripsCam as $trips) {
+                    for ($i = 0; $i < count($trips) - 1; $i++) {
+                        if ($trips[$i]['hs_salida'] !== null && $trips[$i]['hs_llegada'] === null
+                            && $trips[$i + 1]['hs_salida'] !== null
+                            && $trips[$i + 1]['hs_salida'] >= $trips[$i]['hs_salida']) {
+                            $siguienteHsSalida[$trips[$i]['id_hoja']] = $trips[$i + 1]['hs_salida'];
+                        }
+                    }
+                }
+            } catch (Exception $e) {}
+        }
+
+        $total_km = 0; $total_hs = 0;
         foreach ($data as $r) {
-            if ($r['por_hora']) {
-                $total_hs += (float)($r['hs_recorridas'] ?? 0);
-                $has_hs = true;
-            } else {
-                $total_km += (float)($r['km_recorridos'] ?? 0);
-                $has_km = true;
+            if ((float)($r['km_recorridos'] ?? 0) > 0) {
+                $total_km += (float)$r['km_recorridos'];
+            }
+            $hs = null;
+            if ($r['hs_salida'] !== null) {
+                if ($r['hs_llegada'] !== null) {
+                    $hs = $r['hs_recorridas'];
+                } elseif (isset($siguienteHsSalida[$r['id_hoja']])) {
+                    $hs = $siguienteHsSalida[$r['id_hoja']] - $r['hs_salida'];
+                }
+            }
+            if ($hs !== null && (float)$hs > 0) {
+                $total_hs += (float)$hs;
             }
         }
         $totales = [];
-        if ($has_km && $has_hs) {
-            $totales['km_recorridos'] = number_format($total_km, 0) . ' km / ' . number_format($total_hs, 1) . ' hs';
-        } elseif ($has_hs) {
-            $totales['km_recorridos'] = number_format($total_hs, 1) . ' hs';
-        } elseif ($has_km) {
+        if ($total_km > 0) {
             $totales['km_recorridos'] = number_format($total_km, 0) . ' km';
         }
+        if ($total_hs > 0) {
+            $totales['hs_recorridas'] = number_format($total_hs, 1) . ' hs';
+        }
         foreach ($data as &$row) {
-            if ($row['por_hora']) {
-                $row['km_salida'] = $row['hs_salida'] !== null ? number_format($row['hs_salida'], 1) : '-';
-                $row['km_llegada'] = $row['hs_llegada'] !== null ? number_format($row['hs_llegada'], 1) : '-';
-                $row['km_recorridos'] = $row['hs_recorridas'] !== null ? number_format($row['hs_recorridas'], 1) . ' hs' : '-';
-                $row['hs_salida'] = $row['hs_salida'] !== null ? number_format($row['hs_salida'], 1) : '-';
-                $row['hs_llegada'] = $row['hs_llegada'] !== null ? number_format($row['hs_llegada'], 1) : '-';
-                $row['hs_recorridas'] = $row['hs_recorridas'] !== null ? number_format($row['hs_recorridas'], 1) . ' hs' : '-';
-            } else {
-                $row['km_salida'] = number_format($row['km_salida'], 0);
-                $row['km_llegada'] = $row['km_llegada'] !== null ? number_format($row['km_llegada'], 0) : '-';
-                $row['km_recorridos'] = $row['km_recorridos'] !== null ? number_format($row['km_recorridos'], 0) : '-';
-                $row['hs_salida'] = $row['hs_salida'] !== null ? number_format($row['hs_salida'], 1) : '-';
-                $row['hs_llegada'] = $row['hs_llegada'] !== null ? number_format($row['hs_llegada'], 1) : '-';
-                $row['hs_recorridas'] = $row['hs_recorridas'] !== null ? number_format($row['hs_recorridas'], 1) . ' hs' : '-';
+            $row['km_salida'] = $row['km_salida'] !== null && (float)$row['km_salida'] > 0 ? number_format($row['km_salida'], 0) : '-';
+            $row['km_llegada'] = $row['km_llegada'] !== null ? number_format($row['km_llegada'], 0) : '-';
+            $row['km_recorridos'] = $row['km_recorridos'] !== null && (float)$row['km_recorridos'] > 0 ? number_format($row['km_recorridos'], 0) : '-';
+            $hsRecEf = null;
+            if ($row['hs_salida'] !== null) {
+                if ($row['hs_llegada'] !== null) {
+                    $hsRecEf = $row['hs_recorridas'];
+                } elseif (isset($siguienteHsSalida[$row['id_hoja']])) {
+                    $hsRecEf = $siguienteHsSalida[$row['id_hoja']] - $row['hs_salida'];
+                }
             }
+            $row['hs_salida'] = $row['hs_salida'] !== null ? number_format($row['hs_salida'], 1) : '-';
+            $row['hs_llegada'] = $row['hs_llegada'] !== null ? number_format($row['hs_llegada'], 1) : '-';
+            $row['hs_recorridas'] = $hsRecEf !== null && (float)$hsRecEf > 0 ? number_format($hsRecEf, 1) . ' hs' : '-';
         }
         unset($row);
-        $headers = ['Fecha', 'Chofer', 'Patente', 'Origen', 'Destino', 'KM Salida', 'KM Llegada', 'KM Recorridos', 'HS Salida', 'HS Llegada', 'HS Recorridas', 'Estado', 'Nro Hoja Ruta', 'Rol'];
+        $headers = ['Fecha', 'Chofer', 'Patente', 'Origen', 'Destino', 'KM Salida', 'KM Llegada', 'KM Recorridos', 'Hs Maquina Salida', 'Hs Maquina Llegada', 'HS Recorridas', 'Estado', 'Nro Hoja Ruta', 'Rol'];
         $title = 'Reporte de Viajes';
         break;
 

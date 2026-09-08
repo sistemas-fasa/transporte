@@ -168,6 +168,28 @@ $registros = $db->prepare($sql);
 $registros->execute($params);
 $registrosList = $registros->fetchAll();
 
+// Horas trabajadas: si el viaje no tiene hs_llegada, se toma la hs_salida del siguiente viaje del mismo camion
+$siguienteHsSalida = [];
+$cams = array_unique(array_map('intval', array_column($registrosList, 'id_camion')));
+if (!empty($cams)) {
+    $inCams = implode(',', $cams);
+    try {
+        $stmtNx = $db->prepare("SELECT id_camion, id_hoja, fecha, hs_salida, hs_llegada FROM km_recorrido WHERE id_camion IN ($inCams) ORDER BY id_camion, fecha ASC, id_hoja ASC");
+        $stmtNx->execute();
+        $tripsCam = [];
+        foreach ($stmtNx->fetchAll() as $nx) { $tripsCam[$nx['id_camion']][] = $nx; }
+        foreach ($tripsCam as $trips) {
+            for ($i = 0; $i < count($trips) - 1; $i++) {
+                if ($trips[$i]['hs_salida'] !== null && $trips[$i]['hs_llegada'] === null
+                    && $trips[$i + 1]['hs_salida'] !== null
+                    && $trips[$i + 1]['hs_salida'] >= $trips[$i]['hs_salida']) {
+                    $siguienteHsSalida[$trips[$i]['id_hoja']] = $trips[$i + 1]['hs_salida'];
+                }
+            }
+        }
+    } catch (Exception $e) {}
+}
+
 require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/sidebar_admin.php';
 ?>
@@ -237,14 +259,34 @@ $estado = $r['estado'] ?? 'abierto';
 if ($estado === 'aprobado') $bCls = 'bg-green-100 text-green-800';
 elseif ($estado === 'cerrado') $bCls = 'bg-blue-100 text-blue-800';
 else $bCls = 'bg-amber-100 text-amber-800';
+$kmSal = (float)($r['km_salida'] ?? 0);
+$kmLle = $r['km_llegada'] ?? null;
+$hsSal = $r['hs_salida'] ?? null;
+$hsLle = $r['hs_llegada'] ?? null;
+if ($kmSal > 0) {
+    $kmCol = number_format($kmSal, 0) . '&rarr;' . ($kmLle !== null ? number_format($kmLle, 0) : '-');
+} elseif ($hsSal !== null) {
+    $kmCol = number_format($hsSal, 1) . '&rarr;' . ($hsLle !== null ? number_format($hsLle, 1) : '-');
+} else {
+    $kmCol = '-';
+}
+$hsRecEf = null;
+if ($hsSal !== null) {
+    if ($hsLle !== null) { $hsRecEf = $r['hs_recorridas']; }
+    elseif (isset($siguienteHsSalida[$r['id_hoja']])) { $hsRecEf = $siguienteHsSalida[$r['id_hoja']] - $hsSal; }
+}
+$kmRecCol = '';
+if ($r['km_recorridos'] !== null && (float)$r['km_recorridos'] > 0) $kmRecCol .= number_format($r['km_recorridos'], 0) . ' km';
+if ($hsRecEf !== null && (float)$hsRecEf > 0) $kmRecCol .= ($kmRecCol !== '' ? ' / ' : '') . number_format($hsRecEf, 1) . ' hs';
+if ($kmRecCol === '') $kmRecCol = '-';
 ?>
 <tr class="hover:bg-surface-container transition-colors text-[12px]">
 <td class="px-2 py-2 font-data-mono whitespace-nowrap"><?= date('d/m/Y', strtotime($r['fecha'])) ?></td>
 <td class="px-2 py-2 leading-tight"><span class="block text-[11px]"><?= htmlspecialchars($r['apellido'] ?? '') ?></span><span class="block text-[11px]"><?= htmlspecialchars($r['nombre'] ?? '') ?></span></td>
 <td class="px-2 py-2 font-bold whitespace-nowrap"><?= htmlspecialchars($r['patente']) ?></td>
 <td class="px-2 py-2 truncate" title="<?= htmlspecialchars(($r['origen'] ?? '') . ' → ' . ($r['destino'] ?? '')) ?>"><?= htmlspecialchars(($r['origen'] ?? '-') . ' → ' . ($r['destino'] ?? '-')) ?></td>
-<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['por_hora'] ? (number_format($r['hs_salida'], 1) . '&rarr;' . ($r['hs_llegada'] !== null ? number_format($r['hs_llegada'], 1) : '-')) : (number_format($r['km_salida'], 0) . '&rarr;' . ($r['km_llegada'] !== null ? number_format($r['km_llegada'], 0) : '-')) ?></td>
-<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $r['por_hora'] ? ($r['hs_recorridas'] !== null ? number_format($r['hs_recorridas'], 1) . ' hs' : '-') : ($r['km_recorridos'] !== null ? number_format($r['km_recorridos'], 0) : '-') ?></td>
+<td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $kmCol ?></td>
+<td class="px-2 py-2 text-right font-data-mono font-bold whitespace-nowrap"><?= $kmRecCol ?></td>
 <td class="px-2 py-2 text-right font-data-mono whitespace-nowrap text-[11px]"><?= $r['tara'] !== null ? number_format($r['tara'], 0) : '' ?><?= $r['tara'] !== null && $r['peso_carga'] !== null ? '/' : '' ?><?= $r['peso_carga'] !== null ? number_format($r['peso_carga'], 0) : '' ?><?= $r['tara'] === null && $r['peso_carga'] === null ? '-' : '' ?></td>
 <td class="px-2 py-2 text-center whitespace-nowrap">
 <span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase <?= $bCls ?>"><?= $estado ?></span>
@@ -349,11 +391,11 @@ else $bCls = 'bg-amber-100 text-amber-800';
 </div>
 <div class="grid grid-cols-2 gap-4 hidden" id="hsFields">
 <div class="flex flex-col gap-1">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Salida (Horas)</label>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Hs Maquina Salida</label>
 <input name="hs_salida" id="viajeHsSalida" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" oninput="calcKmRec()"/>
 </div>
 <div class="flex flex-col gap-1">
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">HS Llegada (Horas)</label>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Hs Maquina Llegada</label>
 <input name="hs_llegada" id="viajeHsLlegada" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
 </div>
 </div>

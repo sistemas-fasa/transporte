@@ -27,8 +27,13 @@ if (!isset($_SESSION['_permisos_seeded'])) {
             ['matafuegos_crear', 'Crear matafuegos', 'Matafuegos'],
             ['matafuegos_editar', 'Editar matafuegos', 'Matafuegos'],
             ['matafuegos_eliminar', 'Eliminar matafuegos', 'Matafuegos'],
+            ['checklist_ver', 'Ver checklist máquinas', 'Checklist'],
+            ['checklist_cargar', 'Cargar checklist máquinas', 'Checklist'],
+            ['checklist_aprobar', 'Aprobar y firmar checklist máquinas', 'Checklist'],
+            ['checklist_config', 'Configurar preguntas checklist', 'Checklist'],
+            ['checklist_eliminar', 'Eliminar inspecciones checklist', 'Checklist'],
         ];
-        $viewPermisos = ['choferes_ver','choferes_crear','choferes_editar','alertas_ver','empresas_ver','matafuegos_ver'];
+        $viewPermisos = ['choferes_ver','choferes_crear','choferes_editar','alertas_ver','empresas_ver','matafuegos_ver','checklist_ver','checklist_cargar','checklist_aprobar'];
         foreach ($faltantes as $p) {
             $stmt = $db->prepare("SELECT COUNT(*) FROM permisos WHERE codigo = ?");
             $stmt->execute([$p[0]]);
@@ -58,8 +63,13 @@ function requireLogin(): void {
 }
 
 function _esRoleAdminCapable(array $role): bool {
-    if (in_array((int)$role['id_rol'], [1,2,4])) return true;
+    if (in_array((int)($role['id_rol'] ?? 0), [1,2])) return true;
     $name = strtolower($role['nombre'] ?? '');
+    if ($name === 'steffenhnos') return false;
+    if (strpos($name, 'inspector') !== false) return true;
+    if (strpos($name, 'administrador') !== false || strpos($name, 'admin') !== false) return true;
+    if (strpos($name, 'supervisor') !== false) return true;
+    if (strpos($name, 'bascula') !== false || strpos($name, 'báscula') !== false) return true;
     return in_array($name, ['administrador', 'supervisor', 'báscula', 'bascula', 'inspector']);
 }
 
@@ -92,7 +102,7 @@ function _refreshUserPermissions(): void {
 
 function isAdmin(): bool {
     if (!isLoggedIn()) return false;
-    if (!empty($_SESSION['id_chofer'])) return false;
+    if (strtolower($_SESSION['user_rol'] ?? '') === 'admin') return true;
     _refreshUserPermissions();
     foreach ($_SESSION['user_roles'] ?? [] as $role) {
         if (_esRoleAdminCapable($role)) return true;
@@ -117,9 +127,8 @@ function requireChofer(): void {
 }
 
 function requireChoferAccess(string $codigo): void {
-    requireChofer();
-    if (!hasPermission($codigo)) {
-        header('HTTP/1.0 403 Forbidden');
+    requireLogin();
+    if (!hasPermission($codigo) && !isAdmin()) {
         header('Location: ' . BASE_URL . '/chofer/panel.php');
         exit;
     }
@@ -142,6 +151,11 @@ function getChoferIdFromUser(): ?int {
 }
 
 function logout(): void {
+    if (isLoggedIn()) {
+        try {
+            registrarAcceso(getCurrentUserId(), 'cierre_sesion', 'Login', null, "Cierre de sesion");
+        } catch (Exception $e) {}
+    }
     dbSessionLogout();
     header('Location: ' . BASE_URL . '/login.php');
     exit;
@@ -151,14 +165,14 @@ function logout(): void {
 
 function hasPermission(string $codigo): bool {
     if (!isLoggedIn()) return false;
+    if (isAdmin()) return true;
     _refreshUserPermissions();
     return in_array($codigo, $_SESSION['user_permissions'] ?? []);
 }
 
 function requirePermission(string $codigo): void {
     requireLogin();
-    if (!hasPermission($codigo)) {
-        header('HTTP/1.0 403 Forbidden');
+    if (!hasPermission($codigo) && !isAdmin()) {
         header('Location: ' . getDefaultPage());
         exit;
     }
@@ -196,14 +210,42 @@ function esChofer(): bool {
     return false;
 }
 
+function esMantenimiento(): bool {
+    if (!isLoggedIn()) return false;
+    _refreshUserPermissions();
+    foreach ($_SESSION['user_roles'] ?? [] as $role) {
+        if (preg_match('/mantenimiento/i', $role['nombre'] ?? '')) return true;
+    }
+    return false;
+}
+
+function esInspector(): bool {
+    if (!isLoggedIn()) return false;
+    _refreshUserPermissions();
+    foreach ($_SESSION['user_roles'] ?? [] as $role) {
+        if (stripos($role['nombre'] ?? '', 'inspector') !== false) return true;
+    }
+    return false;
+}
+
+function puedeAprobarChecklist(): bool {
+    if (!isLoggedIn()) return false;
+    if (esAdminPleno() || hasRole('Administrador') || strtolower($_SESSION['user_rol'] ?? '') === 'admin') return true;
+    if (hasRole('Inspector') || esInspector() || hasRole('Supervisor')) return true;
+    return hasPermission('checklist_aprobar');
+}
+
 function getDefaultPage(): string {
     if (!isLoggedIn()) return BASE_URL . '/login.php';
-    if (!empty($_SESSION['id_chofer'])) {
-        return BASE_URL . '/chofer/panel.php';
-    }
     _refreshUserPermissions();
     foreach ($_SESSION['user_roles'] ?? [] as $role) {
         if (_esRoleAdminCapable($role)) return BASE_URL . '/admin/dashboard.php';
+    }
+    if (esMantenimiento()) {
+        return BASE_URL . '/chofer/panel.php';
+    }
+    if (!empty($_SESSION['id_chofer'])) {
+        return BASE_URL . '/chofer/panel.php';
     }
     foreach ($_SESSION['user_roles'] ?? [] as $role) {
         if (_esRoleChofer($role)) return BASE_URL . '/chofer/panel.php';
