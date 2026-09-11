@@ -139,7 +139,15 @@ function getCurrentUserId(): int {
 }
 
 function getCurrentUserName(): string {
-    return $_SESSION['user_nombre'] ?? $_SESSION['username'] ?? 'Usuario';
+    if (!empty($_SESSION['user_nombre_completo'])) {
+        return $_SESSION['user_nombre_completo'];
+    }
+    if (!empty($_SESSION['user_nombre'])) {
+        $nom = $_SESSION['user_nombre'];
+        $ape = $_SESSION['user_apellido'] ?? '';
+        return trim($nom . ' ' . $ape);
+    }
+    return $_SESSION['username'] ?? 'Usuario';
 }
 
 function getCurrentUserRol(): string {

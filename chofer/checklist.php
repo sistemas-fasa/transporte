@@ -22,13 +22,47 @@ if (!$idChofer && $userId) {
 
 $usuarioActual = null;
 $firmaGuardadaUsuario = null;
+$operadorNombre = '';
 if ($userId) {
     try {
         $stmtUs = $db->prepare("SELECT id_usuario, username, nombre, apellido, firma_digital FROM usuarios WHERE id_usuario = ?");
         $stmtUs->execute([$userId]);
         $usuarioActual = $stmtUs->fetch();
         $firmaGuardadaUsuario = $usuarioActual['firma_digital'] ?? null;
+        if ($usuarioActual) {
+            $nomU = trim($usuarioActual['nombre'] ?? '');
+            $apeU = trim($usuarioActual['apellido'] ?? '');
+            if ($nomU && $apeU) {
+                $operadorNombre = $nomU . ' ' . $apeU;
+            } elseif ($nomU) {
+                $operadorNombre = $nomU;
+            }
+        }
     } catch (Exception $e) {}
+}
+
+// Si falta el apellido y el usuario está vinculado a un chofer, obtenerlo de la tabla choferes
+if ($idChofer && (empty($operadorNombre) || (empty($usuarioActual['apellido']) && !empty($usuarioActual['nombre'])))) {
+    try {
+        $stmtChData = $db->prepare("SELECT nombre, apellido FROM choferes WHERE id_chofer = ? LIMIT 1");
+        $stmtChData->execute([$idChofer]);
+        $chInfo = $stmtChData->fetch();
+        if ($chInfo) {
+            $nomCh = trim($chInfo['nombre'] ?? '');
+            $apeCh = trim($chInfo['apellido'] ?? '');
+            if ($nomCh && $apeCh) {
+                $operadorNombre = $nomCh . ' ' . $apeCh;
+            } elseif (!empty($usuarioActual['nombre']) && $apeCh) {
+                $operadorNombre = trim($usuarioActual['nombre'] . ' ' . $apeCh);
+            } elseif ($nomCh || $apeCh) {
+                $operadorNombre = trim($nomCh . ' ' . $apeCh);
+            }
+        }
+    } catch (Exception $e) {}
+}
+
+if (empty($operadorNombre)) {
+    $operadorNombre = getCurrentUserName();
 }
 
 $mensaje = '';
@@ -78,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $horas_maquina = !empty($_POST['horas_maquina']) ? (float)$_POST['horas_maquina'] : null;
     $fecha = date('Y-m-d H:i:s');
     $observacion_general = trim($_POST['observacion_general'] ?? '');
-    $firmado_por = trim($_POST['firmado_por'] ?? getCurrentUserName());
+    $firmado_por = trim($_POST['firmado_por'] ?? $operadorNombre);
     $respuestasPost = $_POST['respuestas'] ?? [];
     $observacionesPost = $_POST['observaciones'] ?? [];
 
@@ -489,7 +523,7 @@ require_once __DIR__ . '/../includes/sidebar_chofer.php';
                     </div>
                     <div>
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Operador</label>
-                        <input type="text" name="firmado_por" value="<?= htmlspecialchars(getCurrentUserName()) ?>" class="w-full px-3.5 py-2.5 text-sm bg-slate-100 border border-outline-variant rounded-2xl text-slate-700 font-medium" readonly>
+                        <input type="text" name="firmado_por" value="<?= htmlspecialchars($operadorNombre) ?>" class="w-full px-3.5 py-2.5 text-sm bg-slate-100 border border-outline-variant rounded-2xl text-slate-700 font-medium" readonly>
                     </div>
                 </div>
 

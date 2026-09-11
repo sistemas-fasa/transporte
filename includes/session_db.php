@@ -30,11 +30,37 @@ function dbSessionStart() {
         $user = $stmt->fetch();
         if ($user) {
             $pdo->prepare("UPDATE sesiones SET ultimo_acceso = NOW() WHERE token = ?")->execute([$token]);
+            
+            $nombreCompleto = trim(($user['nombre'] ?? '') . ' ' . ($user['apellido'] ?? ''));
+            if (empty($nombreCompleto) && !empty($user['id_chofer'])) {
+                try {
+                    $stCh = $pdo->prepare("SELECT nombre, apellido FROM choferes WHERE id_chofer = ?");
+                    $stCh->execute([$user['id_chofer']]);
+                    $ch = $stCh->fetch();
+                    if ($ch) {
+                        $nombreCompleto = trim(($ch['nombre'] ?? '') . ' ' . ($ch['apellido'] ?? ''));
+                    }
+                } catch (Exception $e) {}
+            }
+            if (empty($user['apellido']) && !empty($user['id_chofer'])) {
+                try {
+                    $stCh = $pdo->prepare("SELECT apellido FROM choferes WHERE id_chofer = ?");
+                    $stCh->execute([$user['id_chofer']]);
+                    $apeCh = $stCh->fetchColumn();
+                    if ($apeCh) {
+                        $user['apellido'] = $apeCh;
+                        $nombreCompleto = trim(($user['nombre'] ?? '') . ' ' . $apeCh);
+                    }
+                } catch (Exception $e) {}
+            }
+
             $_SESSION['user_id'] = (int)$user['id_usuario'];
             $_SESSION['user_rol'] = $user['rol'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['id_chofer'] = $user['id_chofer'];
             $_SESSION['user_nombre'] = $user['nombre'] ?: $user['username'];
+            $_SESSION['user_apellido'] = $user['apellido'] ?? '';
+            $_SESSION['user_nombre_completo'] = $nombreCompleto ?: ($user['nombre'] ?: $user['username']);
 
             // Cargar roles y permisos (con fallback si las tablas no existen)
             $_SESSION['user_roles'] = [];
@@ -90,11 +116,36 @@ function dbSessionLogin($id_usuario, $rol, $username, $id_chofer = null) {
         $stmt->execute([$id_usuario]);
         $user = $stmt->fetch();
 
+        $nombreCompleto = trim(($user['nombre'] ?? '') . ' ' . ($user['apellido'] ?? ''));
+        if (empty($nombreCompleto) && !empty($id_chofer)) {
+            try {
+                $stCh = $pdo->prepare("SELECT nombre, apellido FROM choferes WHERE id_chofer = ?");
+                $stCh->execute([$id_chofer]);
+                $ch = $stCh->fetch();
+                if ($ch) {
+                    $nombreCompleto = trim(($ch['nombre'] ?? '') . ' ' . ($ch['apellido'] ?? ''));
+                }
+            } catch (Exception $e) {}
+        }
+        if (empty($user['apellido']) && !empty($id_chofer)) {
+            try {
+                $stCh = $pdo->prepare("SELECT apellido FROM choferes WHERE id_chofer = ?");
+                $stCh->execute([$id_chofer]);
+                $apeCh = $stCh->fetchColumn();
+                if ($apeCh) {
+                    $user['apellido'] = $apeCh;
+                    $nombreCompleto = trim(($user['nombre'] ?? '') . ' ' . $apeCh);
+                }
+            } catch (Exception $e) {}
+        }
+
         $_SESSION['user_id'] = (int)$id_usuario;
         $_SESSION['user_rol'] = $rol;
         $_SESSION['username'] = $username;
         $_SESSION['id_chofer'] = $id_chofer;
-        $_SESSION['user_nombre'] = ($user['nombre'] ?? '') ?: $username;
+        $_SESSION['user_nombre'] = $user['nombre'] ?: $username;
+        $_SESSION['user_apellido'] = $user['apellido'] ?? '';
+        $_SESSION['user_nombre_completo'] = $nombreCompleto ?: ($user['nombre'] ?: $username);
 
         // Cargar roles y permisos (con fallback si las tablas no existen)
         $_SESSION['user_roles'] = [];

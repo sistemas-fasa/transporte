@@ -16,6 +16,7 @@ if (!$id) {
 $stmt = $db->prepare("SELECT i.*, 
     c.patente, c.marca, c.modelo, c.tipo as tipo_vehiculo, c.horas_actuales, c.kilometraje_actual, c.anio,
     CONCAT(ch.nombre, ' ', ch.apellido) as chofer_nombre,
+    TRIM(CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellido, ''))) as usuario_nombre_completo,
     u.username as usuario_nombre
     FROM checklist_inspecciones i
     LEFT JOIN camiones c ON i.id_camion = c.id_camion
@@ -39,7 +40,7 @@ foreach ($respuestas as $r) {
     $respuestasPorCat[$r['categoria']][] = $r;
 }
 
-$nombreOperador = htmlspecialchars($inspeccion['firmado_por'] ?: ($inspeccion['chofer_nombre'] ?: $inspeccion['usuario_nombre']));
+$nombreOperador = htmlspecialchars($inspeccion['firmado_por'] ?: ($inspeccion['chofer_nombre'] ?: (($inspeccion['usuario_nombre_completo'] ?? '') ?: $inspeccion['usuario_nombre'])));
 $nombreInspector = htmlspecialchars($inspeccion['inspector_nombre'] ?: 'Inspector Responsable');
 $esAprobado = ($inspeccion['estado_aprobacion'] ?? '') === 'aprobado' || ($inspeccion['estado'] === 'aprobado' && empty($inspeccion['estado_aprobacion']));
 $esRechazado = ($inspeccion['estado_aprobacion'] ?? '') === 'rechazado' || $inspeccion['estado'] === 'rechazado';

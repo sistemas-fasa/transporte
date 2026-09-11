@@ -43,7 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $descripcion = trim($_POST['descripcion'] ?? '');
     $proveedor = trim($_POST['proveedor'] ?? '');
     $costo = (float)($_POST['costo'] ?? 0);
-    $kilometraje = (float)($_POST['kilometraje'] ?? 0);
+    $kilometraje = isset($_POST['kilometraje']) && $_POST['kilometraje'] !== '' ? (float)$_POST['kilometraje'] : null;
+    $horas = isset($_POST['horas']) && $_POST['horas'] !== '' ? (float)$_POST['horas'] : null;
     $id_camion = (int)($_POST['id_camion'] ?? 0);
 
     $foto_factura = null;
@@ -54,8 +55,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     try {
-        $stmt = $db->prepare("INSERT INTO mantenimientos (fecha, id_camion, tipo, descripcion, proveedor, costo, kilometraje, foto_factura, id_usuario_registra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$fecha, $id_camion, $tipo, $descripcion, $proveedor, $costo, $kilometraje, $foto_factura, getCurrentUserId()]);
+        $stmt = $db->prepare("INSERT INTO mantenimientos (fecha, id_camion, tipo, descripcion, proveedor, costo, kilometraje, horas, foto_factura, id_usuario_registra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$fecha, $id_camion, $tipo, $descripcion, $proveedor, $costo, $kilometraje, $horas, $foto_factura, getCurrentUserId()]);
+        
+        if ($id_camion) {
+            if ($horas !== null && $horas > 0) {
+                $db->prepare("UPDATE camiones SET horas_actuales = GREATEST(COALESCE(horas_actuales, 0), ?) WHERE id_camion = ?")->execute([$horas, $id_camion]);
+            }
+            if ($kilometraje !== null && $kilometraje > 0) {
+                $db->prepare("UPDATE camiones SET kilometraje_actual = GREATEST(COALESCE(kilometraje_actual, 0), ?) WHERE id_camion = ?")->execute([$kilometraje, $id_camion]);
+            }
+        }
+
         registrarAuditoria(getCurrentUserId(), 'create', 'mantenimientos', $db->lastInsertId(), "Chofer reporto mantenimiento: $tipo");
         $mensaje = 'Mantenimiento reportado exitosamente';
     } catch (Exception $e) {
@@ -82,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <?php if ($camion): ?>
 <input type="hidden" name="id_camion" value="<?= $camion['id_camion'] ?>"/>
 <div class="bg-primary-container/10 p-4 rounded-lg mb-6">
-<p class="font-bold">Vehiculo: <?= htmlspecialchars($camion['marca'] . ' ' . $camion['patente']) ?></p>
+<p class="font-bold">Vehiculo / Máquina: <?= htmlspecialchars($camion['marca'] . ' ' . $camion['patente']) ?><?= $camion['por_hora'] ? ' <span class="text-xs text-amber-800 bg-amber-100 px-2 py-0.5 rounded font-bold uppercase ml-2">Máquina</span>' : '' ?></p>
 </div>
 <?php endif; ?>
 
@@ -110,19 +121,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <textarea name="descripcion" rows="3" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Describa el problema o servicio realizado..."></textarea>
 </div>
 
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
 <div>
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Proveedor</label>
-<input name="proveedor" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+<input name="proveedor" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Nombre del taller o proveedor"/>
 </div>
 <div>
 <label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Costo ($)</label>
-<input name="costo" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+<input name="costo" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="0.00"/>
+</div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+<?php if (!empty($camion['por_hora'])): ?>
+<div>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase font-bold text-primary">Horas de Máquina (HS)</label>
+<input name="horas" type="number" step="0.1" value="<?= (float)($camion['horas_actuales'] ?? 0) > 0 ? (float)$camion['horas_actuales'] : '' ?>" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Ej: 1250.5"/>
 </div>
 <div>
-<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje</label>
-<input name="kilometraje" type="number" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase opacity-60">Kilometraje (opcional)</label>
+<input name="kilometraje" type="number" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="KM opcional"/>
 </div>
+<?php else: ?>
+<div>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase font-bold text-primary">Kilometraje</label>
+<input name="kilometraje" type="number" value="<?= (float)($camion['kilometraje_actual'] ?? 0) > 0 ? (float)$camion['kilometraje_actual'] : '' ?>" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="KM actual"/>
+</div>
+<div>
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase opacity-60">Horas de Máquina (opcional)</label>
+<input name="horas" type="number" step="0.1" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Horas opcional"/>
+</div>
+<?php endif; ?>
 </div>
 
 <div class="mt-4">

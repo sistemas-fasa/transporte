@@ -102,16 +102,29 @@ $empresa_filter = isset($_GET['empresa']) ? (int)$_GET['empresa'] : 0;
 // Crear tablas si no existen y verificar columnas faltantes (solo una vez)
 try { $db->exec("CREATE TABLE IF NOT EXISTS camion_repuestos (id_repuesto INT AUTO_INCREMENT PRIMARY KEY, id_camion INT NOT NULL, codigo VARCHAR(50) DEFAULT NULL, nombre VARCHAR(200) NOT NULL, descripcion TEXT DEFAULT NULL, cantidad INT DEFAULT 1, costo_unitario DECIMAL(10,2) DEFAULT 0, created_at DATETIME DEFAULT NULL, INDEX idx_rep_camion (id_camion)) ENGINE=InnoDB"); } catch (Exception $e) {}
 try { $db->exec("CREATE TABLE IF NOT EXISTS camion_tareas (id_tarea INT AUTO_INCREMENT PRIMARY KEY, id_camion INT NOT NULL, nombre VARCHAR(200) NOT NULL, descripcion TEXT DEFAULT NULL, frecuencia VARCHAR(50) DEFAULT NULL, km_intervalo DECIMAL(10,2) DEFAULT NULL, created_at DATETIME DEFAULT NULL, INDEX idx_tarea_camion (id_camion)) ENGINE=InnoDB"); } catch (Exception $e) {}
-try { $db->exec("CREATE TABLE IF NOT EXISTS mantenimientos (id_mantenimiento INT AUTO_INCREMENT PRIMARY KEY, fecha DATE NOT NULL, id_camion INT NOT NULL, tipo VARCHAR(50) DEFAULT 'otro', taller VARCHAR(30) DEFAULT 'taller_fasa', descripcion TEXT, proveedor VARCHAR(200), costo DECIMAL(10,2) DEFAULT 0, kilometraje DECIMAL(12,2) DEFAULT 0, proximo_mantenimiento_km DECIMAL(12,2) DEFAULT NULL, proximo_mantenimiento_fecha DATE DEFAULT NULL, foto_factura VARCHAR(255), id_usuario_registra INT, created_at DATETIME DEFAULT NULL, INDEX idx_mant_camion (id_camion)) ENGINE=InnoDB"); } catch (Exception $e) {}
+try { $db->exec("CREATE TABLE IF NOT EXISTS mantenimientos (id_mantenimiento INT AUTO_INCREMENT PRIMARY KEY, fecha DATE NOT NULL, id_camion INT NOT NULL, tipo VARCHAR(50) DEFAULT 'otro', taller VARCHAR(30) DEFAULT 'taller_fasa', descripcion TEXT, proveedor VARCHAR(200), costo DECIMAL(10,2) DEFAULT 0, kilometraje DECIMAL(12,2) DEFAULT 0, horas DECIMAL(12,2) DEFAULT NULL, proximo_mantenimiento_km DECIMAL(12,2) DEFAULT NULL, proximo_mantenimiento_hs DECIMAL(12,2) DEFAULT NULL, proximo_mantenimiento_fecha DATE DEFAULT NULL, foto_factura VARCHAR(255), id_usuario_registra INT, created_at DATETIME DEFAULT NULL, INDEX idx_mant_camion (id_camion)) ENGINE=InnoDB"); } catch (Exception $e) {}
 $pedidosTableError = '';
 try { $db->exec("CREATE TABLE IF NOT EXISTS pedidos_mantenimiento (id_pedido INT AUTO_INCREMENT PRIMARY KEY, id_camion INT NOT NULL, tipo VARCHAR(50) DEFAULT 'otro', prioridad VARCHAR(20) DEFAULT 'normal', titulo VARCHAR(200) DEFAULT NULL, descripcion TEXT, estado VARCHAR(20) DEFAULT 'pendiente', id_usuario_crea INT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, INDEX idx_pedido_camion (id_camion), INDEX idx_pedido_estado (estado)) ENGINE=InnoDB"); } catch (Exception $e) { $pedidosTableError = $e->getMessage(); error_log("CREATE TABLE pedidos_mantenimiento FAILED: " . $e->getMessage()); }
 try { $db->exec("CREATE TABLE IF NOT EXISTS notificaciones (id_notificacion INT AUTO_INCREMENT PRIMARY KEY, id_usuario INT NOT NULL, mensaje TEXT NOT NULL, url VARCHAR(255) DEFAULT NULL, leida TINYINT(1) DEFAULT 0, tipo VARCHAR(50) DEFAULT 'info', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX idx_notif_usuario (id_usuario, leida)) ENGINE=InnoDB"); } catch (Exception $e) {}
-try { $colsMant = []; $r = $db->query("SHOW COLUMNS FROM mantenimientos"); while ($row = $r->fetch()) { $colsMant[] = $row['Field']; } if (!in_array('taller', $colsMant)) { $db->exec("ALTER TABLE mantenimientos ADD COLUMN taller VARCHAR(30) DEFAULT 'taller_fasa' AFTER tipo"); } } catch (Exception $e) {}
+try { 
+    $colsMant = []; 
+    $r = $db->query("SHOW COLUMNS FROM mantenimientos"); 
+    while ($row = $r->fetch()) { $colsMant[] = $row['Field']; } 
+    if (!in_array('taller', $colsMant)) { $db->exec("ALTER TABLE mantenimientos ADD COLUMN taller VARCHAR(30) DEFAULT 'taller_fasa' AFTER tipo"); } 
+    if (!in_array('horas', $colsMant)) { $db->exec("ALTER TABLE mantenimientos ADD COLUMN horas DECIMAL(12,2) DEFAULT NULL AFTER kilometraje"); } 
+    if (!in_array('proximo_mantenimiento_hs', $colsMant)) { $db->exec("ALTER TABLE mantenimientos ADD COLUMN proximo_mantenimiento_hs DECIMAL(12,2) DEFAULT NULL AFTER proximo_mantenimiento_km"); } 
+} catch (Exception $e) {}
 try { $colsRep = []; $r = $db->query("SHOW COLUMNS FROM camion_repuestos"); while ($row = $r->fetch()) { $colsRep[] = $row['Field']; } if (!in_array('codigo', $colsRep)) { $db->exec("ALTER TABLE camion_repuestos ADD COLUMN codigo VARCHAR(50) DEFAULT NULL AFTER id_camion"); } } catch (Exception $e) {}
 try { $colsPed = []; $r = $db->query("SHOW COLUMNS FROM pedidos_mantenimiento"); while ($row = $r->fetch()) { $colsPed[] = $row['Field']; } if (!in_array('prioridad', $colsPed)) { $db->exec("ALTER TABLE pedidos_mantenimiento ADD COLUMN prioridad VARCHAR(20) DEFAULT 'normal' AFTER tipo"); } } catch (Exception $e) {}
 try { $colsPed2 = []; $r = $db->query("SHOW COLUMNS FROM pedidos_mantenimiento"); while ($row = $r->fetch()) { $colsPed2[] = $row['Field']; } if (!in_array('titulo', $colsPed2)) { $db->exec("ALTER TABLE pedidos_mantenimiento ADD COLUMN titulo VARCHAR(200) DEFAULT NULL AFTER prioridad"); } } catch (Exception $e) {}
 try { $colsPed3 = []; $r = $db->query("SHOW COLUMNS FROM pedidos_mantenimiento"); while ($row = $r->fetch()) { $colsPed3[] = $row['Field']; } if (!in_array('tareas', $colsPed3)) { $db->exec("ALTER TABLE pedidos_mantenimiento ADD COLUMN tareas TEXT NULL AFTER descripcion"); } if (!in_array('respuesta', $colsPed3)) { $db->exec("ALTER TABLE pedidos_mantenimiento ADD COLUMN respuesta TEXT NULL AFTER tareas"); } } catch (Exception $e) {}
-try { $colsCam = []; $r = $db->query("SHOW COLUMNS FROM camiones"); while ($row = $r->fetch()) { $colsCam[] = $row['Field']; } if (!in_array('proximo_mantenimiento_fecha', $colsCam)) { $db->exec("ALTER TABLE camiones ADD COLUMN proximo_mantenimiento_fecha DATE DEFAULT NULL"); } } catch (Exception $e) {}
+try { 
+    $colsCam = []; 
+    $r = $db->query("SHOW COLUMNS FROM camiones"); 
+    while ($row = $r->fetch()) { $colsCam[] = $row['Field']; } 
+    if (!in_array('proximo_mantenimiento_fecha', $colsCam)) { $db->exec("ALTER TABLE camiones ADD COLUMN proximo_mantenimiento_fecha DATE DEFAULT NULL"); } 
+    if (!in_array('proximo_mantenimiento_hs', $colsCam)) { $db->exec("ALTER TABLE camiones ADD COLUMN proximo_mantenimiento_hs DECIMAL(10,2) DEFAULT NULL AFTER proximo_mantenimiento_km"); } 
+} catch (Exception $e) {}
 
 $empresasList = $db->query("SELECT id_empresa, nombre FROM empresas WHERE activo = 1 ORDER BY nombre")->fetchAll();
 if (!$empresa_filter) {
@@ -135,9 +148,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $taller = $_POST['taller'] ?? 'taller_fasa';
         $descripcion = trim($_POST['descripcion'] ?? '');
         $proveedor = trim($_POST['proveedor'] ?? '');
-        $kilometraje = (float)($_POST['kilometraje'] ?? 0);
-        $proximo_km = (float)($_POST['proximo_mantenimiento_km'] ?? 0);
-        $proximo_fecha = $_POST['proximo_mantenimiento_fecha'] ?? null;
+        $kilometraje = isset($_POST['kilometraje']) && $_POST['kilometraje'] !== '' ? (float)$_POST['kilometraje'] : null;
+        $horas = isset($_POST['horas']) && $_POST['horas'] !== '' ? (float)$_POST['horas'] : null;
+        $proximo_km = isset($_POST['proximo_mantenimiento_km']) && $_POST['proximo_mantenimiento_km'] !== '' ? (float)$_POST['proximo_mantenimiento_km'] : null;
+        $proximo_hs = isset($_POST['proximo_mantenimiento_hs']) && $_POST['proximo_mantenimiento_hs'] !== '' ? (float)$_POST['proximo_mantenimiento_hs'] : null;
+        $proximo_fecha = !empty($_POST['proximo_mantenimiento_fecha']) ? $_POST['proximo_mantenimiento_fecha'] : null;
         $rep_hechos = $_POST['rep_hechos'] ?? [];
         $tareas_hechas = $_POST['tareas_hechas'] ?? [];
         $detalles = [];
@@ -167,8 +182,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             move_uploaded_file($_FILES['foto_factura']['tmp_name'], __DIR__ . '/../assets/uploads/facturas/' . $foto_factura);
         }
         try {
-            $stmt = $db->prepare("INSERT INTO mantenimientos (fecha, id_camion, tipo, taller, descripcion, proveedor, costo, kilometraje, proximo_mantenimiento_km, proximo_mantenimiento_fecha, foto_factura, id_usuario_registra) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([$fecha, $id_camion, $tipo, $taller, $descripcion, '', 0, $kilometraje, $proximo_km, $proximo_fecha, $foto_factura, getCurrentUserId()]);
+            $stmt = $db->prepare("INSERT INTO mantenimientos (fecha, id_camion, tipo, taller, descripcion, proveedor, costo, kilometraje, horas, proximo_mantenimiento_km, proximo_mantenimiento_hs, proximo_mantenimiento_fecha, foto_factura, id_usuario_registra) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$fecha, $id_camion, $tipo, $taller, $descripcion, '', 0, $kilometraje, $horas, $proximo_km, $proximo_hs, $proximo_fecha, $foto_factura, getCurrentUserId()]);
+            
+            // Actualizar camión si corresponde
+            if ($id_camion) {
+                $camUpdates = [];
+                $camParams = [];
+                if ($kilometraje !== null && $kilometraje > 0) {
+                    $camUpdates[] = "kilometraje_actual = GREATEST(COALESCE(kilometraje_actual,0), ?)";
+                    $camParams[] = $kilometraje;
+                }
+                if ($horas !== null && $horas > 0) {
+                    $camUpdates[] = "horas_actuales = GREATEST(COALESCE(horas_actuales,0), ?)";
+                    $camParams[] = $horas;
+                }
+                if ($proximo_km !== null && $proximo_km > 0) {
+                    $camUpdates[] = "proximo_mantenimiento_km = ?";
+                    $camParams[] = $proximo_km;
+                }
+                if ($proximo_hs !== null && $proximo_hs > 0) {
+                    $camUpdates[] = "proximo_mantenimiento_hs = ?";
+                    $camParams[] = $proximo_hs;
+                }
+                if ($proximo_fecha) {
+                    $camUpdates[] = "proximo_mantenimiento_fecha = ?";
+                    $camParams[] = $proximo_fecha;
+                }
+                if (!empty($camUpdates)) {
+                    $camParams[] = $id_camion;
+                    $db->prepare("UPDATE camiones SET " . implode(", ", $camUpdates) . " WHERE id_camion=?")->execute($camParams);
+                }
+            }
+
             registrarAuditoria(getCurrentUserId(), 'create', 'mantenimientos', $db->lastInsertId(), "Registro mantenimiento para camion ID $id_camion");
             $mensaje = 'Mantenimiento registrado exitosamente';
         } catch (Exception $e) { $error = 'Error: ' . $e->getMessage(); }
@@ -267,14 +313,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'update_prog') {
         $id_camion = (int)($_POST['id_camion'] ?? 0);
         $km_actual = $_POST['kilometraje_actual'] ?? '';
+        $horas_actual = $_POST['horas_actuales'] ?? '';
         $prox_km = $_POST['proximo_mantenimiento_km'] ?? '';
+        $prox_hs = $_POST['proximo_mantenimiento_hs'] ?? '';
         $prox_fecha = $_POST['proximo_mantenimiento_fecha'] ?? '';
         $km_actual = ($km_actual !== '' && $km_actual !== null) ? (float)$km_actual : null;
+        $horas_actual = ($horas_actual !== '' && $horas_actual !== null) ? (float)$horas_actual : null;
         $prox_km = ($prox_km !== '' && $prox_km !== null) ? (float)$prox_km : null;
+        $prox_hs = ($prox_hs !== '' && $prox_hs !== null) ? (float)$prox_hs : null;
         $prox_fecha = ($prox_fecha !== '' && $prox_fecha !== null) ? $prox_fecha : null;
         if ($id_camion) {
             try {
-                $db->prepare("UPDATE camiones SET kilometraje_actual = COALESCE(?, kilometraje_actual), proximo_mantenimiento_km = COALESCE(?, proximo_mantenimiento_km), proximo_mantenimiento_fecha = COALESCE(?, proximo_mantenimiento_fecha) WHERE id_camion=?")->execute([$km_actual, $prox_km, $prox_fecha, $id_camion]);
+                $db->prepare("UPDATE camiones SET 
+                    kilometraje_actual = COALESCE(?, kilometraje_actual), 
+                    horas_actuales = COALESCE(?, horas_actuales), 
+                    proximo_mantenimiento_km = COALESCE(?, proximo_mantenimiento_km), 
+                    proximo_mantenimiento_hs = COALESCE(?, proximo_mantenimiento_hs), 
+                    proximo_mantenimiento_fecha = COALESCE(?, proximo_mantenimiento_fecha) 
+                    WHERE id_camion=?")->execute([$km_actual, $horas_actual, $prox_km, $prox_hs, $prox_fecha, $id_camion]);
                 $mensaje = 'Programacion actualizada';
             } catch (Exception $e) { $error = 'Error: ' . $e->getMessage(); }
         }
@@ -292,7 +348,7 @@ if (!$empresa_filter) {
     }
 }
 
-$sqlCamiones = "SELECT id_camion, patente, marca, modelo, foto FROM camiones WHERE 1=1";
+$sqlCamiones = "SELECT id_camion, patente, marca, modelo, foto, por_hora, horas_actuales, kilometraje_actual, proximo_mantenimiento_km, proximo_mantenimiento_hs FROM camiones WHERE 1=1";
 if ($empresa_filter) { $sqlCamiones .= " AND empresa_id = $empresa_filter"; }
 $camiones = $db->query($sqlCamiones . " ORDER BY patente")->fetchAll();
 
@@ -300,7 +356,7 @@ $camiones = $db->query($sqlCamiones . " ORDER BY patente")->fetchAll();
 $mantList = [];
 if ($vista === 'mantenimientos') {
     try {
-        $sql = "SELECT m.*, c.patente, c.marca FROM mantenimientos m JOIN camiones c ON m.id_camion = c.id_camion WHERE 1=1";
+        $sql = "SELECT m.*, c.patente, c.marca, c.por_hora FROM mantenimientos m JOIN camiones c ON m.id_camion = c.id_camion WHERE 1=1";
         $params = [];
         if ($empresa_filter) { $sql .= " AND c.empresa_id = ?"; $params[] = $empresa_filter; }
         if ($buscar) { $sql .= " AND (c.patente LIKE ? OR m.tipo LIKE ? OR m.descripcion LIKE ?)"; $params[] = "%$buscar%"; $params[] = "%$buscar%"; $params[] = "%$buscar%"; }
@@ -319,7 +375,7 @@ foreach ($camiones as $c) { if ($c['id_camion'] == $camionRepTareas) { $camionAc
 $progList = [];
 if ($vista === 'programacion') {
     try {
-        $sqlP = "SELECT c.id_camion, c.patente, c.marca, c.modelo, c.foto, c.kilometraje_actual, c.proximo_mantenimiento_km, c.proximo_mantenimiento_fecha,
+        $sqlP = "SELECT c.id_camion, c.patente, c.marca, c.modelo, c.foto, c.por_hora, c.horas_actuales, c.kilometraje_actual, c.proximo_mantenimiento_km, c.proximo_mantenimiento_hs, c.proximo_mantenimiento_fecha,
             (SELECT m.fecha FROM mantenimientos m WHERE m.id_camion = c.id_camion ORDER BY m.fecha DESC LIMIT 1) as ultimo_mant
             FROM camiones c WHERE 1=1";
         if ($empresa_filter) { $sqlP .= " AND c.empresa_id = $empresa_filter"; }
@@ -417,11 +473,11 @@ if ($vista === 'reportes') {
 <thead class="bg-surface-container-high/50">
 <tr>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">FECHA</th>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CAMION</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CAMION / MAQUINA</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">TIPO</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">TALLER</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">DESCRIPCION</th>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">KM</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">KM / HORAS</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-center">FACTURA</th>
 </tr>
 </thead>
@@ -436,7 +492,15 @@ $talleres = ['taller_fasa' => 'Taller FASA', 'taller_externo' => 'Taller Externo
 <td class="px-4 py-3"><span class="px-2 py-1 bg-secondary-container text-on-secondary-container rounded text-xs font-bold"><?= $tipos[$m['tipo']] ?? $m['tipo'] ?></span></td>
 <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs font-bold <?= ($m['taller'] ?? 'taller_fasa') === 'taller_fasa' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700' ?>"><?= $talleres[$m['taller']] ?? 'Taller FASA' ?></span></td>
 <td class="px-4 py-3 text-xs max-w-xs truncate" title="<?= htmlspecialchars($m['descripcion'] ?? '') ?>"><?= htmlspecialchars(mb_strimwidth($m['descripcion'] ?? '-', 0, 60, '...')) ?></td>
-<td class="px-4 py-3 text-right font-data-mono"><?= $m['kilometraje'] ? number_format($m['kilometraje'], 0) : '-' ?></td>
+<td class="px-4 py-3 text-right font-data-mono">
+<?php if (!empty($m['horas']) && (float)$m['horas'] > 0): ?>
+<span class="font-bold text-amber-700"><?= number_format((float)$m['horas'], 1) ?> HS</span>
+<?php elseif (!empty($m['kilometraje']) && (float)$m['kilometraje'] > 0): ?>
+<?= number_format((float)$m['kilometraje'], 0) ?> KM
+<?php else: ?>
+<span class="text-on-surface-variant text-xs">-</span>
+<?php endif; ?>
+</td>
 <td class="px-4 py-3 text-center">
 <?php if ($m['foto_factura']): ?>
 <a href="<?= BASE_URL ?>/assets/uploads/facturas/<?= $m['foto_factura'] ?>" target="_blank" class="text-primary underline text-xs">Ver</a>
@@ -593,16 +657,16 @@ if ($empresa_filter) { $urlSel .= '&empresa=' . $empresa_filter; }
 <!-- ==================== PROGRAMACION ==================== -->
 <div class="mb-6">
 <h3 class="font-headline-sm text-headline-sm text-primary mb-4">Programacion de Mantenimiento</h3>
-<p class="text-sm text-on-surface-variant mb-6">A continuacion se listan los vehiculos con su proximo servicio segun KM y ultimo mantenimiento.</p>
+<p class="text-sm text-on-surface-variant mb-6">A continuacion se listan los vehiculos y maquinas con su proximo servicio segun KM u Horas de uso.</p>
 
 <div class="bg-surface-container-lowest border border-outline-variant rounded-xl table-wrap">
 <table class="w-full">
 <thead class="bg-surface-container-high/50">
 <tr>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">CAMION</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">VEHICULO / MAQUINA</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">MODELO</th>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">KM ACTUAL</th>
-<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">PROX. SERVICIO KM</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">USO ACTUAL</th>
+<th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">PROX. SERVICIO</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">PROX. FECHA</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-right">FALTANTE</th>
 <th class="px-4 py-3 font-label-caps text-[10px] text-on-surface-variant text-left">ULTIMO MANT.</th>
@@ -612,12 +676,28 @@ if ($empresa_filter) { $urlSel .= '&empresa=' . $empresa_filter; }
 </thead>
 <tbody class="divide-y divide-outline-variant">
 <?php foreach ($progList as $p):
-$faltante = ($p['proximo_mantenimiento_km'] ?? 0) - ($p['kilometraje_actual'] ?? 0);
-$estado = 'al_dia';
-if ($faltante <= 0) { $estado = 'vencido'; }
-elseif ($faltante <= 5000) { $estado = 'proximo'; }
-$estLabels = ['al_dia' => 'Al dia', 'proximo' => 'Proximo servicio', 'vencido' => 'Vencido'];
-$estColors = ['al_dia' => 'bg-green-50 text-green-700', 'proximo' => 'bg-amber-50 text-amber-700', 'vencido' => 'bg-red-50 text-red-700'];
+$isPorHora = (bool)$p['por_hora'];
+if ($isPorHora) {
+    $usoActual = (float)($p['horas_actuales'] ?? 0);
+    $proxServicio = ($p['proximo_mantenimiento_hs'] ?? 0) ? (float)$p['proximo_mantenimiento_hs'] : null;
+    $unidad = 'HS';
+    $faltante = $proxServicio !== null ? ($proxServicio - $usoActual) : null;
+    $estado = 'al_dia';
+    if ($faltante === null) { $estado = 'sin_datos'; }
+    elseif ($faltante <= 0) { $estado = 'vencido'; }
+    elseif ($faltante <= 50) { $estado = 'proximo'; }
+} else {
+    $usoActual = (float)($p['kilometraje_actual'] ?? 0);
+    $proxServicio = ($p['proximo_mantenimiento_km'] ?? 0) ? (float)$p['proximo_mantenimiento_km'] : null;
+    $unidad = 'KM';
+    $faltante = $proxServicio !== null ? ($proxServicio - $usoActual) : null;
+    $estado = 'al_dia';
+    if ($faltante === null) { $estado = 'sin_datos'; }
+    elseif ($faltante <= 0) { $estado = 'vencido'; }
+    elseif ($faltante <= 5000) { $estado = 'proximo'; }
+}
+$estLabels = ['al_dia' => 'Al dia', 'proximo' => 'Proximo servicio', 'vencido' => 'Vencido', 'sin_datos' => 'Sin programar'];
+$estColors = ['al_dia' => 'bg-green-50 text-green-700', 'proximo' => 'bg-amber-50 text-amber-700', 'vencido' => 'bg-red-50 text-red-700', 'sin_datos' => 'bg-gray-100 text-gray-600'];
 ?>
 <tr class="hover:bg-surface-container transition-colors">
 <td class="px-4 py-3">
@@ -625,20 +705,25 @@ $estColors = ['al_dia' => 'bg-green-50 text-green-700', 'proximo' => 'bg-amber-5
 <?php if ($p['foto']): ?>
 <img src="<?= BASE_URL ?>/assets/uploads/vehiculos/<?= htmlspecialchars($p['foto']) ?>" class="w-9 h-9 rounded object-cover" alt=""/>
 <?php else: ?>
-<span class="material-symbols-outlined text-on-surface-variant w-9 h-9 flex items-center justify-center">local_shipping</span>
+<span class="material-symbols-outlined text-on-surface-variant w-9 h-9 flex items-center justify-center"><?= $isPorHora ? 'precision_manufacturing' : 'local_shipping' ?></span>
 <?php endif; ?>
+<div>
 <span class="font-bold"><?= htmlspecialchars($p['patente']) ?></span>
+<?php if ($isPorHora): ?><span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold uppercase">Máquina</span><?php endif; ?>
+</div>
 </div>
 </td>
 <td class="px-4 py-3 text-xs"><?= htmlspecialchars($p['marca'] . ' ' . $p['modelo']) ?></td>
-<td class="px-4 py-3 text-right font-data-mono"><?= number_format((float)($p['kilometraje_actual'] ?? 0), 0) ?></td>
-<td class="px-4 py-3 text-right font-data-mono"><?= ($p['proximo_mantenimiento_km'] ?? 0) ? number_format((float)$p['proximo_mantenimiento_km'], 0) : '-' ?></td>
+<td class="px-4 py-3 text-right font-data-mono"><?= number_format($usoActual, $isPorHora ? 1 : 0) ?> <span class="text-xs text-on-surface-variant"><?= $unidad ?></span></td>
+<td class="px-4 py-3 text-right font-data-mono"><?= $proxServicio !== null ? number_format($proxServicio, $isPorHora ? 1 : 0) . " <span class='text-xs text-on-surface-variant'>$unidad</span>" : '-' ?></td>
 <td class="px-4 py-3 text-xs font-data-mono"><?= ($p['proximo_mantenimiento_fecha'] ?? '') ? date('d/m/Y', strtotime($p['proximo_mantenimiento_fecha'])) : '-' ?></td>
-<td class="px-4 py-3 text-right font-bold <?= $estado === 'vencido' ? 'text-red-600' : ($estado === 'proximo' ? 'text-amber-600' : 'text-green-600') ?>"><?= $faltante > 0 ? number_format($faltante, 0) : 'VENCIDO' ?></td>
+<td class="px-4 py-3 text-right font-bold <?= $estado === 'vencido' ? 'text-red-600' : ($estado === 'proximo' ? 'text-amber-600' : ($estado === 'sin_datos' ? 'text-gray-400' : 'text-green-600')) ?>">
+<?= $faltante === null ? '-' : ($faltante > 0 ? number_format($faltante, $isPorHora ? 1 : 0) . " $unidad" : 'VENCIDO') ?>
+</td>
 <td class="px-4 py-3 text-xs font-data-mono"><?= $p['ultimo_mant'] ? date('d/m/Y', strtotime($p['ultimo_mant'])) : '-' ?></td>
 <td class="px-4 py-3 text-center"><span class="px-2 py-1 rounded text-xs font-bold <?= $estColors[$estado] ?>"><?= $estLabels[$estado] ?></span></td>
 <td class="px-4 py-3 text-center">
-<button onclick="openEditarProg(<?= (int)$p['id_camion'] ?>, '<?= htmlspecialchars($p['patente'], ENT_QUOTES) ?>', <?= (float)$p['kilometraje_actual'] ?>, <?= ($p['proximo_mantenimiento_km'] ?? 0) ? (float)$p['proximo_mantenimiento_km'] : 0 ?>, '<?= htmlspecialchars($p['proximo_mantenimiento_fecha'] ?? '', ENT_QUOTES) ?>')" class="bg-primary text-on-primary rounded-lg px-2.5 py-1.5 text-[10px] font-bold hover:opacity-90 flex items-center gap-1 mx-auto" title="Editar programacion"><span class="material-symbols-outlined text-sm">edit_calendar</span> Editar</button>
+<button onclick="openEditarProg(<?= (int)$p['id_camion'] ?>, '<?= htmlspecialchars($p['patente'], ENT_QUOTES) ?>', <?= (float)$p['kilometraje_actual'] ?>, <?= (float)($p['horas_actuales'] ?? 0) ?>, <?= ($p['proximo_mantenimiento_km'] ?? 0) ? (float)$p['proximo_mantenimiento_km'] : 0 ?>, <?= ($p['proximo_mantenimiento_hs'] ?? 0) ? (float)$p['proximo_mantenimiento_hs'] : 0 ?>, '<?= htmlspecialchars($p['proximo_mantenimiento_fecha'] ?? '', ENT_QUOTES) ?>', <?= $isPorHora ? 1 : 0 ?>)" class="bg-primary text-on-primary rounded-lg px-2.5 py-1.5 text-[10px] font-bold hover:opacity-90 flex items-center gap-1 mx-auto" title="Editar programacion"><span class="material-symbols-outlined text-sm">edit_calendar</span> Editar</button>
 </td>
 </tr>
 <?php endforeach; ?>
@@ -711,10 +796,12 @@ $estColors = ['al_dia' => 'bg-green-50 text-green-700', 'proximo' => 'bg-amber-5
 <input type="hidden" name="action" value="create"/>
 <div class="grid grid-cols-2 gap-4">
 <div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Fecha</label><input name="fecha" type="date" value="<?= date('Y-m-d') ?>" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required/></div>
-<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Camion</label>
-<select name="id_camion" id="mantCamion" onchange="cargarRepTareas()" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required>
+<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Vehículo / Máquina</label>
+<select name="id_camion" id="mantCamion" onchange="cargarRepTareas(); onMantCamionChange();" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" required>
 <option value="">Seleccionar...</option>
-<?php foreach ($camiones as $c): ?><option value="<?= $c['id_camion'] ?>"><?= htmlspecialchars($c['patente'] . ' - ' . $c['marca'] . ' ' . $c['modelo']) ?></option><?php endforeach; ?>
+<?php foreach ($camiones as $c): ?>
+<option value="<?= $c['id_camion'] ?>" data-por-hora="<?= (int)$c['por_hora'] ?>" data-horas="<?= (float)($c['horas_actuales'] ?? 0) ?>" data-km="<?= (float)($c['kilometraje_actual'] ?? 0) ?>" data-prox-km="<?= (float)($c['proximo_mantenimiento_km'] ?? 0) ?>" data-prox-hs="<?= (float)($c['proximo_mantenimiento_hs'] ?? 0) ?>"><?= htmlspecialchars($c['patente'] . ' - ' . $c['marca'] . ' ' . $c['modelo']) . ($c['por_hora'] ? ' (Máquina / Horas)' : '') ?></option>
+<?php endforeach; ?>
 </select></div>
 </div>
 <div id="repTareasInfo" class="hidden bg-surface-container-low border border-outline-variant rounded-lg p-4">
@@ -747,11 +834,19 @@ $estColors = ['al_dia' => 'bg-green-50 text-green-700', 'proximo' => 'bg-amber-5
 </select></div>
 </div>
 <div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Descripcion</label><textarea name="descripcion" rows="2" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"></textarea></div>
-<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Kilometraje</label><input name="kilometraje" type="number" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/></div>
+
+<!-- Inputs de KM y Horas de la máquina -->
 <div class="grid grid-cols-2 gap-4">
-<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Prox. Mant. (KM)</label><input name="proximo_mantenimiento_km" type="number" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/></div>
-<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Prox. Mant. (Fecha)</label><input name="proximo_mantenimiento_fecha" type="date" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/></div>
+<div id="mantKmBox"><label class="font-label-caps text-label-caps text-on-surface-variant uppercase" id="lblMantKm">Kilometraje</label><input name="kilometraje" id="mantKilometraje" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Ej: 154000"/></div>
+<div id="mantHsBox"><label class="font-label-caps text-label-caps text-on-surface-variant uppercase" id="lblMantHs">Horas de Máquina (HS)</label><input name="horas" id="mantHoras" type="number" step="0.1" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Ej: 1250.5"/></div>
 </div>
+
+<div class="grid grid-cols-3 gap-3">
+<div id="mantProxKmBox"><label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-[11px]" id="lblMantProxKm">Prox. Mant. (KM)</label><input name="proximo_mantenimiento_km" id="mantProxKm" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low text-sm" placeholder="KM"/></div>
+<div id="mantProxHsBox"><label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-[11px]" id="lblMantProxHs">Prox. Mant. (Horas)</label><input name="proximo_mantenimiento_hs" id="mantProxHs" type="number" step="0.1" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low text-sm" placeholder="HS"/></div>
+<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-[11px]">Prox. Mant. (Fecha)</label><input name="proximo_mantenimiento_fecha" type="date" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low text-sm"/></div>
+</div>
+
 <div id="facturaBox" class="hidden"><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Subir Factura *</label><input name="foto_factura" type="file" accept="image/*" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/></div>
 <div class="flex gap-3 pt-4">
 <button type="button" onclick="closeModal('modalMantenimiento')" class="flex-1 border border-outline text-primary py-2 rounded-lg font-bold">Cancelar</button>
@@ -830,15 +925,21 @@ $estColors = ['al_dia' => 'bg-green-50 text-green-700', 'proximo' => 'bg-amber-5
 <form method="POST" class="p-6 space-y-4">
 <input type="hidden" name="action" value="update_prog"/>
 <input type="hidden" name="id_camion" id="progCamionId"/>
-<p class="text-sm text-on-surface-variant">Vehiculo: <strong id="progPatente"></strong></p>
-<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">KM Actual</label><input name="kilometraje_actual" id="progKmActual" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Dejar vacio para no cambiar"/></div>
-<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Prox. Servicio KM</label><input name="proximo_mantenimiento_km" id="progKmProx" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low" placeholder="Dejar vacio para no cambiar"/></div>
-<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Prox. Servicio Fecha</label><input name="proximo_mantenimiento_fecha" id="progFecha" type="date" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low"/></div>
+<p class="text-sm text-on-surface-variant">Vehiculo / Máquina: <strong id="progPatente"></strong></p>
+<div class="grid grid-cols-2 gap-3">
+<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">KM Actual</label><input name="kilometraje_actual" id="progKmActual" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low text-sm" placeholder="Dejar vacio para no cambiar"/></div>
+<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Prox. Servicio KM</label><input name="proximo_mantenimiento_km" id="progKmProx" type="number" step="0.01" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low text-sm" placeholder="Dejar vacio para no cambiar"/></div>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Horas Actuales (HS)</label><input name="horas_actuales" id="progHsActual" type="number" step="0.1" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low text-sm" placeholder="Horas Actuales"/></div>
+<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Prox. Servicio (HS)</label><input name="proximo_mantenimiento_hs" id="progHsProx" type="number" step="0.1" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low text-sm" placeholder="Prox. Horas"/></div>
+</div>
+<div><label class="font-label-caps text-label-caps text-on-surface-variant uppercase text-xs">Prox. Servicio Fecha</label><input name="proximo_mantenimiento_fecha" id="progFecha" type="date" class="w-full border border-outline-variant rounded p-3 bg-surface-container-low text-sm"/></div>
 <div class="flex gap-3 pt-4">
 <button type="button" onclick="closeModal('modalEditarProg')" class="flex-1 border border-outline text-primary py-2 rounded-lg font-bold">Cancelar</button>
 <button type="submit" class="flex-1 bg-primary text-on-primary py-2 rounded-lg font-bold">Guardar</button>
- </div>
- </form>
+</div>
+</form>
   </div>
   </div>
 
@@ -936,11 +1037,13 @@ var repuestosData = <?= json_encode($repuestosPorCamion) ?>;
 var tareasData = <?= json_encode($tareasPorCamion) ?>;
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-function openEditarProg(id, patente, kmActual, kmProx, fecha) {
+function openEditarProg(id, patente, kmActual, hsActual, kmProx, hsProx, fecha, porHora) {
      document.getElementById('progCamionId').value = id;
      document.getElementById('progPatente').textContent = patente;
      document.getElementById('progKmActual').value = kmActual > 0 ? kmActual : '';
+     document.getElementById('progHsActual').value = hsActual > 0 ? hsActual : '';
      document.getElementById('progKmProx').value = kmProx > 0 ? kmProx : '';
+     document.getElementById('progHsProx').value = hsProx > 0 ? hsProx : '';
      document.getElementById('progFecha').value = fecha || '';
      openModal('modalEditarProg');
  }
@@ -981,6 +1084,28 @@ document.getElementById('facturaBox').classList.toggle('hidden', val === 'taller
 function imprimirChecklist(camionId) {
 if (!camionId) { alert('Seleccione un camion primero'); return; }
 window.open('<?= BASE_URL ?>/admin/mantenimiento.php?vista=planes&camion_rt=' + camionId + '&print=1' + '<?= $empresa_filter ? '&empresa=' . $empresa_filter : '' ?>', '_blank', 'width=850,height=650');
+}
+function onMantCamionChange() {
+    const sel = document.getElementById('mantCamion');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    const isPorHora = opt.getAttribute('data-por-hora') === '1';
+    const km = opt.getAttribute('data-km') || '';
+    const hs = opt.getAttribute('data-horas') || '';
+    const proxKm = opt.getAttribute('data-prox-km') || '';
+    const proxHs = opt.getAttribute('data-prox-hs') || '';
+
+    if (isPorHora) {
+        document.getElementById('mantHoras').value = hs > 0 ? hs : '';
+        document.getElementById('mantProxHs').value = proxHs > 0 ? proxHs : '';
+        document.getElementById('lblMantHs').classList.add('text-primary', 'font-bold');
+        document.getElementById('lblMantKm').classList.remove('text-primary', 'font-bold');
+    } else {
+        document.getElementById('mantKilometraje').value = km > 0 ? km : '';
+        document.getElementById('mantProxKm').value = proxKm > 0 ? proxKm : '';
+        document.getElementById('lblMantKm').classList.add('text-primary', 'font-bold');
+        document.getElementById('lblMantHs').classList.remove('text-primary', 'font-bold');
+    }
 }
 function cargarRepTareas() {
 const id = document.getElementById('mantCamion').value;

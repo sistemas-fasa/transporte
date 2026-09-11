@@ -80,7 +80,29 @@ try {
     } else {
         echo "<p class='info'>&bull; El índice 'idx_combustible_km' ya existe.</p>";
     }
-    // 5. Recalcular todas las cargas existentes
+    // 5. Mantenimientos columns for machines/hours
+    try {
+        $stmtM = $db->query("DESCRIBE mantenimientos");
+        $colsM = $stmtM->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('horas', $colsM)) {
+            $db->exec("ALTER TABLE mantenimientos ADD COLUMN horas DECIMAL(12,2) DEFAULT NULL AFTER kilometraje");
+            echo "<p class='success'>&check; Columna 'horas' agregada a 'mantenimientos'.</p>";
+        }
+        if (!in_array('proximo_mantenimiento_hs', $colsM)) {
+            $db->exec("ALTER TABLE mantenimientos ADD COLUMN proximo_mantenimiento_hs DECIMAL(12,2) DEFAULT NULL AFTER proximo_mantenimiento_km");
+            echo "<p class='success'>&check; Columna 'proximo_mantenimiento_hs' agregada a 'mantenimientos'.</p>";
+        }
+    } catch (Exception $e) {}
+
+    // 6. Camiones proximo_mantenimiento_hs
+    try {
+        if (!in_array('proximo_mantenimiento_hs', $cols2)) {
+            $db->exec("ALTER TABLE camiones ADD COLUMN proximo_mantenimiento_hs DECIMAL(10,2) DEFAULT NULL AFTER proximo_mantenimiento_km");
+            echo "<p class='success'>&check; Columna 'proximo_mantenimiento_hs' agregada a 'camiones'.</p>";
+        }
+    } catch (Exception $e) {}
+
+    // 7. Recalcular todas las cargas existentes
     try {
         $stmtC = $db->query("SELECT id_camion FROM camiones");
         $camionesIds = $stmtC->fetchAll(PDO::FETCH_COLUMN);
